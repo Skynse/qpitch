@@ -2,6 +2,10 @@
 
 QPitch is a JUCE pitch-correction audio plugin with VST3 and CLAP builds.
 
+![QPitch plugin UI](docs/qpitch-ui.png)
+
+[Watch the demo](docs/qpitch-demo.mp4)
+
 ## Dependencies
 
 - CMake 3.21+
@@ -79,8 +83,8 @@ QPitch dynamically loads Rubber Band at runtime on Linux/macOS. This keeps build
 GitHub Releases are created by the `release` workflow. Push a version tag:
 
 ```sh
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 The workflow builds Linux, macOS, and Windows VST3/CLAP packages and uploads:
@@ -92,4 +96,4 @@ The workflow builds Linux, macOS, and Windows VST3/CLAP packages and uploads:
 - `QPitch-<version>-windows-vst3.zip`
 - `QPitch-<version>-windows-clap.zip`
 
-You can also run the release workflow manually from GitHub Actions and provide a version like `v1.1.0`.
+You can also run the release workflow manually from GitHub Actions and provide a version like `v1.2.0`.
