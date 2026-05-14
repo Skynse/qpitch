@@ -1,0 +1,25 @@
+build/
+cmake-build-*/
+out/
+
+# CMake can fetch these automatically. Force-add them only if you intentionally
+# want an offline vendored repo.
+JUCE/
+clap-juce-extensions/
+
+*.clap
+*.vst3
+*.component
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+.DS_Store
+Thumbs.db
+
+.cache/
+.vscode/
+.idea/
+compile_commands.json
