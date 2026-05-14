@@ -42,6 +42,7 @@ public:
     float getDebugDetectedHz() const { return debugDetectedHz.load(); }
     float getDebugTargetHz() const { return debugTargetHz.load(); }
     float getDebugCorrectionCents() const { return debugCorrectionCents.load(); }
+    float getReferenceFrequency() const { return scaleQuantizer.getReferenceFrequency(); }
     bool isCustomNoteEnabled(int noteClass) const;
     void setCustomNoteEnabled(int noteClass, bool enabled);
     void resetCustomNotesToScale();
@@ -60,7 +61,13 @@ private:
 
     juce::AudioParameterFloat* retuneSpeedParam = nullptr;
     juce::AudioParameterFloat* noteTransitionParam = nullptr;
+    juce::AudioParameterBool* correctionOnParam = nullptr;
     juce::AudioParameterFloat* correctionAmountParam = nullptr;
+    juce::AudioParameterFloat* toleranceCentsParam = nullptr;
+    juce::AudioParameterFloat* toleranceTimeParam = nullptr;
+    juce::AudioParameterFloat* snappinessParam = nullptr;
+    juce::AudioParameterFloat* tPainParam = nullptr;
+    juce::AudioParameterFloat* referenceFrequencyParam = nullptr;
     juce::AudioParameterChoice* keyParam = nullptr;
     juce::AudioParameterChoice* scaleParam = nullptr;
     juce::AudioParameterChoice* rangeParam = nullptr;
@@ -87,6 +94,8 @@ private:
     float smoothedTargetMidi = -1.0f;
     float smoothedInputMidi = -1.0f;
     int lockedTargetMidi = -1;
+    int pendingTargetMidi = -1;
+    int pendingTargetSamples = 0;
     int pitchHoldSamples = 0;
     int currentKey = 0;
     int currentScale = 0;

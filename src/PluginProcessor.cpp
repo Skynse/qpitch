@@ -5,7 +5,13 @@
 
 static const juce::String paramRetuneSpeed = "retune_speed";
 static const juce::String paramNoteTransition = "note_transition";
+static const juce::String paramCorrectionOn = "correction_on";
 static const juce::String paramCorrectionAmount = "correction_amount";
+static const juce::String paramToleranceCents = "tolerance_cents";
+static const juce::String paramToleranceTime = "tolerance_time";
+static const juce::String paramSnappiness = "snappiness";
+static const juce::String paramTPain = "tpain";
+static const juce::String paramReferenceFrequency = "reference_frequency";
 static const juce::String paramKey = "key";
 static const juce::String paramScale = "scale";
 static const juce::String paramRange = "range";
@@ -21,7 +27,13 @@ QPitchAudioProcessor::QPitchAudioProcessor()
 {
     retuneSpeedParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramRetuneSpeed));
     noteTransitionParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramNoteTransition));
+    correctionOnParam = static_cast<juce::AudioParameterBool*>(vts.getParameter(paramCorrectionOn));
     correctionAmountParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramCorrectionAmount));
+    toleranceCentsParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramToleranceCents));
+    toleranceTimeParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramToleranceTime));
+    snappinessParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramSnappiness));
+    tPainParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramTPain));
+    referenceFrequencyParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramReferenceFrequency));
     keyParam = static_cast<juce::AudioParameterChoice*>(vts.getParameter(paramKey));
     scaleParam = static_cast<juce::AudioParameterChoice*>(vts.getParameter(paramScale));
     rangeParam = static_cast<juce::AudioParameterChoice*>(vts.getParameter(paramRange));
@@ -30,6 +42,7 @@ QPitchAudioProcessor::QPitchAudioProcessor()
     outputGainParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramOutputGain));
 
     vts.addParameterListener(paramRetuneSpeed, this);
+    vts.addParameterListener(paramReferenceFrequency, this);
     vts.addParameterListener(paramKey, this);
     vts.addParameterListener(paramScale, this);
     vts.addParameterListener(paramRange, this);
@@ -44,6 +57,7 @@ QPitchAudioProcessor::QPitchAudioProcessor()
 QPitchAudioProcessor::~QPitchAudioProcessor()
 {
     vts.removeParameterListener(paramRetuneSpeed, this);
+    vts.removeParameterListener(paramReferenceFrequency, this);
     vts.removeParameterListener(paramKey, this);
     vts.removeParameterListener(paramScale, this);
     vts.removeParameterListener(paramRange, this);
@@ -65,11 +79,44 @@ juce::AudioProcessorValueTreeState::ParameterLayout QPitchAudioProcessor::create
         juce::AudioParameterFloatAttributes()
             .withStringFromValueFunction([](float v, int) { return juce::String(v, 1) + " ms"; })));
 
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        paramCorrectionOn, "Correction On", true));
+
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         paramCorrectionAmount, "Correction",
         juce::NormalisableRange<float>(0.0f, 100.0f, 0.5f), 100.0f,
         juce::AudioParameterFloatAttributes()
             .withStringFromValueFunction([](float v, int) { return juce::String(v, 1) + " %"; })));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        paramToleranceCents, "Tolerance Cents",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.5f), 0.0f,
+        juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction([](float v, int) { return juce::String(v, 1) + " ct"; })));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        paramToleranceTime, "Tolerance Time",
+        juce::NormalisableRange<float>(0.0f, 500.0f, 1.0f), 0.0f,
+        juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction([](float v, int) { return juce::String(v, 0) + " ms"; })));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        paramSnappiness, "Snappiness",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.5f), 0.0f,
+        juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction([](float v, int) { return juce::String(v, 0) + " %"; })));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        paramTPain, "T-Pain",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.5f), 0.0f,
+        juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction([](float v, int) { return juce::String(v, 0) + " %"; })));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        paramReferenceFrequency, "Reference Frequency",
+        juce::NormalisableRange<float>(415.0f, 466.0f, 0.01f), 440.0f,
+        juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction([](float v, int) { return juce::String(v, 2) + " Hz"; })));
 
     juce::StringArray keys;
     for (int i = 0; i < 12; ++i)
@@ -142,6 +189,14 @@ void QPitchAudioProcessor::parameterChanged(const juce::String& parameterID, flo
         smoothedInputMidi = -1.0f;
         smoothedTargetMidi = -1.0f;
     }
+    else if (parameterID == paramReferenceFrequency)
+    {
+        scaleQuantizer.setReferenceFrequency(newValue);
+        lockedTargetMidi = -1;
+        pendingTargetMidi = -1;
+        smoothedInputMidi = -1.0f;
+        smoothedTargetMidi = -1.0f;
+    }
 }
 
 void QPitchAudioProcessor::updateScaleMask()
@@ -164,6 +219,8 @@ void QPitchAudioProcessor::setCustomNoteEnabled(int noteClass, bool enabled)
     noteClass = (noteClass % 12 + 12) % 12;
     customNoteMask[static_cast<size_t>(noteClass)].store(enabled);
     lockedTargetMidi = -1;
+    pendingTargetMidi = -1;
+    pendingTargetSamples = 0;
     smoothedTargetMidi = -1.0f;
 }
 
@@ -242,6 +299,9 @@ void QPitchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     smoothedInputMidi = -1.0f;
     lockedTargetMidi = -1;
     pitchHoldSamples = 0;
+    pendingTargetMidi = -1;
+    pendingTargetSamples = 0;
+    scaleQuantizer.setReferenceFrequency(referenceFrequencyParam->get());
 
     float speedMs = retuneSpeedParam->get();
     if (speedMs <= 0.0f)
@@ -277,7 +337,7 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 
     float outputGainDb = outputGainParam->get();
 
-    if (bypass || correctionAmountParam->get() <= 0.0f)
+    if (bypass || !correctionOnParam->get() || correctionAmountParam->get() <= 0.0f)
     {
         if (outputGainDb != 0.0f)
             buffer.applyGain(juce::Decibels::decibelsToGain(outputGainDb));
@@ -285,6 +345,11 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     }
 
     float corrAmount = correctionAmountParam->get() / 100.0f;
+    const float toleranceCents = toleranceCentsParam->get();
+    const float toleranceTimeMs = toleranceTimeParam->get();
+    const float snappiness = snappinessParam->get() / 100.0f;
+    const float tPain = tPainParam->get() / 100.0f;
+    scaleQuantizer.setReferenceFrequency(referenceFrequencyParam->get());
     bool formantOn = formantOnParam->get();
     float formantAmount = formantOn ? 1.0f : 0.0f;
     float humanizeCents = humanizeParam->get();
@@ -304,8 +369,10 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     const bool pitchValid = detectedHz > 0.0f && confidence > 0.62f;
     const float speedMsCurrent = retuneSpeedParam != nullptr ? retuneSpeedParam->get() : 15.0f;
     const float transitionMsCurrent = noteTransitionParam != nullptr ? noteTransitionParam->get() : 120.0f;
-    const bool roboticSnap = speedMsCurrent <= 5.0f && transitionMsCurrent <= 20.0f;
-    const int maxHoldSamples = static_cast<int>((roboticSnap ? 0.100 : 0.180) * currentSampleRate);
+    const float effectiveSpeedMs = std::max(0.0f, speedMsCurrent * (1.0f - snappiness * 0.85f) - tPain * 8.0f);
+    const float effectiveTransitionMs = std::max(0.0f, transitionMsCurrent * (1.0f - snappiness * 0.90f) * (1.0f - tPain * 0.95f));
+    const bool roboticSnap = effectiveSpeedMs <= 5.0f || effectiveTransitionMs <= 12.0f || tPain >= 0.75f;
+    const int maxHoldSamples = static_cast<int>((roboticSnap ? 0.120 : 0.180) * currentSampleRate);
 
     if (pitchValid)
     {
@@ -325,7 +392,7 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
                                                 / std::max(1.0f, 0.045f * static_cast<float>(currentSampleRate)));
         smoothedInputMidi = smoothedInputMidi * inputFollowCoeff + inputMidi * (1.0f - inputFollowCoeff);
 
-        const float speedMs = speedMsCurrent;
+        const float speedMs = effectiveSpeedMs;
         const bool hardSnap = speedMs <= 10.0f;
         const int nearestMidi = findNearestScaleMidi(inputMidi);
 
@@ -338,16 +405,45 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         {
             const float currentDistance = std::abs(inputMidi - static_cast<float>(lockedTargetMidi));
             const float newDistance = std::abs(inputMidi - static_cast<float>(nearestMidi));
-            const float hysteresis = roboticSnap ? 0.24f : (hardSnap ? 0.42f : 0.35f);
-            const float forcedDistance = roboticSnap ? 0.72f : (hardSnap ? 1.20f : 1.20f);
+            const float hysteresis = roboticSnap ? 0.14f : (hardSnap ? 0.32f : 0.35f + toleranceCents * 0.004f);
+            const float forcedDistance = roboticSnap ? 0.58f : (hardSnap ? 1.00f : 1.20f);
             if (newDistance + hysteresis < currentDistance || currentDistance > forcedDistance)
-                lockedTargetMidi = nearestMidi;
+            {
+                const float effectiveToleranceTimeMs = toleranceTimeMs * (1.0f - snappiness * 0.75f) * (1.0f - tPain);
+                const int toleranceSamples = static_cast<int>(effectiveToleranceTimeMs * 0.001f * static_cast<float>(currentSampleRate));
+                if (toleranceSamples <= 0 || roboticSnap || currentDistance > forcedDistance)
+                {
+                    lockedTargetMidi = nearestMidi;
+                    pendingTargetMidi = -1;
+                    pendingTargetSamples = 0;
+                }
+                else
+                {
+                    if (pendingTargetMidi != nearestMidi)
+                    {
+                        pendingTargetMidi = nearestMidi;
+                        pendingTargetSamples = 0;
+                    }
+                    pendingTargetSamples += numSamples;
+                    if (pendingTargetSamples >= toleranceSamples)
+                    {
+                        lockedTargetMidi = pendingTargetMidi;
+                        pendingTargetMidi = -1;
+                        pendingTargetSamples = 0;
+                    }
+                }
+            }
+        }
+        else
+        {
+            pendingTargetMidi = -1;
+            pendingTargetSamples = 0;
         }
 
         if (smoothedTargetMidi < 0.0f)
             smoothedTargetMidi = static_cast<float>(lockedTargetMidi);
 
-        const float transitionMs = transitionMsCurrent;
+        const float transitionMs = effectiveTransitionMs;
         if (transitionMs <= 20.0f)
         {
             smoothedTargetMidi = static_cast<float>(lockedTargetMidi);
@@ -365,22 +461,34 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
             humanizePhase -= 1.0f;
 
         const float humanizeOffset = humanizeCents > 0.0f && !roboticSnap
-            ? std::sin(humanizePhase * 2.0f * juce::MathConstants<float>::pi) * humanizeCents * 0.20f
+            ? std::sin(humanizePhase * 2.0f * juce::MathConstants<float>::pi) * humanizeCents * 0.20f * (1.0f - tPain)
             : 0.0f;
 
         const float correctionInputMidi = hardSnap ? inputMidi : inputMidi;
+        float rawCorrectionCents = (smoothedTargetMidi - correctionInputMidi) * 100.0f;
+        const float effectiveToleranceCents = toleranceCents * (1.0f - snappiness * 0.75f) * (1.0f - tPain);
+        if (effectiveToleranceCents > 0.0f)
+        {
+            if (std::abs(rawCorrectionCents) <= effectiveToleranceCents)
+                rawCorrectionCents = 0.0f;
+            else
+                rawCorrectionCents -= std::copysign(effectiveToleranceCents, rawCorrectionCents);
+        }
 
         const float targetCorrectionCents =
-            std::clamp((smoothedTargetMidi - correctionInputMidi) * 100.0f * corrAmount + humanizeOffset,
+            std::clamp(rawCorrectionCents * corrAmount + humanizeOffset,
                        -1200.0f, 1200.0f);
 
-        if (hardSnap)
+        if (hardSnap || roboticSnap || snappiness >= 0.85f || tPain >= 0.50f)
         {
             smoothedCorrectionCents = targetCorrectionCents;
         }
         else if (pitchCoefficient > 0.0f && pitchCoefficient < 1.0f)
         {
-            const float blockCoeff = std::pow(pitchCoefficient, static_cast<float>(numSamples));
+            const float localCoeff = speedMs <= 0.0f
+                ? 0.0f
+                : std::exp(-1.0f / std::max(1.0f, speedMs * static_cast<float>(currentSampleRate) / 1000.0f));
+            const float blockCoeff = std::pow(localCoeff, static_cast<float>(numSamples));
             smoothedCorrectionCents = smoothedCorrectionCents * blockCoeff
                                       + targetCorrectionCents * (1.0f - blockCoeff);
         }

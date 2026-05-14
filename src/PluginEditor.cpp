@@ -38,6 +38,8 @@ struct QPitchAudioProcessorEditor::RotarySliderWithLabel : juce::Component {
                 valueLabel.setText(juce::String(val, 1) + suffix, juce::dontSendNotification);
             else if (suffix == " ct")
                 valueLabel.setText(juce::String((int)val) + suffix, juce::dontSendNotification);
+            else if (suffix == " Hz")
+                valueLabel.setText(juce::String(val, 2) + suffix, juce::dontSendNotification);
             else
                 valueLabel.setText(juce::String((int)val), juce::dontSendNotification);
         };
@@ -61,15 +63,15 @@ struct QPitchAudioProcessorEditor::PitchDisplay : juce::Component {
     juce::String targetNote;
     bool pendingRepaint = false;
 
-    void setPitches(float detected, float target)
+    void setPitches(float detected, float target, float referenceHz)
     {
         if (std::abs(currentPitch - detected) < 0.1f && std::abs(targetPitch - target) < 0.1f)
             return;
 
         currentPitch = detected;
         targetPitch = target;
-        currentNote = noteNameFromFreq(detected);
-        targetNote = noteNameFromFreq(target);
+        currentNote = noteNameFromFreq(detected, referenceHz);
+        targetNote = noteNameFromFreq(target, referenceHz);
         pendingRepaint = true;
     }
 
@@ -83,10 +85,10 @@ struct QPitchAudioProcessorEditor::PitchDisplay : juce::Component {
         repaint();
     }
 
-    static juce::String noteNameFromFreq(float freq)
+    static juce::String noteNameFromFreq(float freq, float referenceHz)
     {
         if (freq <= 0) return "--";
-        float midi = 69.0f + 12.0f * std::log2(freq / 440.0f);
+        float midi = 69.0f + 12.0f * std::log2(freq / referenceHz);
         int note = (int)std::round(midi);
         static const char* names[] = {"C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B"};
         return names[note % 12] + juce::String(note / 12 - 1);
@@ -409,6 +411,26 @@ QPitchAudioProcessorEditor::QPitchAudioProcessorEditor(QPitchAudioProcessor& p)
     addAndMakeVisible(*correctionAmountSlider);
     correctionAttach = std::make_unique<SliderAttach>(vts, "correction_amount", correctionAmountSlider->slider);
 
+    toleranceCentsSlider = std::make_unique<RotarySliderWithLabel>("Tolerance", " ct");
+    addAndMakeVisible(*toleranceCentsSlider);
+    toleranceCentsAttach = std::make_unique<SliderAttach>(vts, "tolerance_cents", toleranceCentsSlider->slider);
+
+    toleranceTimeSlider = std::make_unique<RotarySliderWithLabel>("Tol Time", " ms");
+    addAndMakeVisible(*toleranceTimeSlider);
+    toleranceTimeAttach = std::make_unique<SliderAttach>(vts, "tolerance_time", toleranceTimeSlider->slider);
+
+    snappinessSlider = std::make_unique<RotarySliderWithLabel>("Snappy", "%");
+    addAndMakeVisible(*snappinessSlider);
+    snappinessAttach = std::make_unique<SliderAttach>(vts, "snappiness", snappinessSlider->slider);
+
+    tPainSlider = std::make_unique<RotarySliderWithLabel>("T-Pain", "%");
+    addAndMakeVisible(*tPainSlider);
+    tPainAttach = std::make_unique<SliderAttach>(vts, "tpain", tPainSlider->slider);
+
+    referenceSlider = std::make_unique<RotarySliderWithLabel>("Reference", " Hz");
+    addAndMakeVisible(*referenceSlider);
+    referenceAttach = std::make_unique<SliderAttach>(vts, "reference_frequency", referenceSlider->slider);
+
     humanizeSlider = std::make_unique<RotarySliderWithLabel>("Humanize", " ct");
     addAndMakeVisible(*humanizeSlider);
     humanizeAttach = std::make_unique<SliderAttach>(vts, "humanize", humanizeSlider->slider);
@@ -449,6 +471,12 @@ QPitchAudioProcessorEditor::QPitchAudioProcessorEditor(QPitchAudioProcessor& p)
     addAndMakeVisible(*rangeCombo);
     rangeAttach = std::make_unique<ComboAttach>(vts, "range", *rangeCombo);
 
+    correctionToggle = std::make_unique<juce::ToggleButton>("Correction On");
+    correctionToggle->setColour(juce::ToggleButton::textColourId, juce::Colours::lightgrey);
+    correctionToggle->setColour(juce::ToggleButton::tickColourId, juce::Colour(0xff00bcd4));
+    addAndMakeVisible(*correctionToggle);
+    correctionOnAttach = std::make_unique<ButtonAttach>(vts, "correction_on", *correctionToggle);
+
     formantToggle = std::make_unique<juce::ToggleButton>("Formant: Corrected");
     formantToggle->setColour(juce::ToggleButton::textColourId, juce::Colours::lightgrey);
     formantToggle->setColour(juce::ToggleButton::tickColourId, juce::Colour(0xff00bcd4));
@@ -484,8 +512,8 @@ QPitchAudioProcessorEditor::QPitchAudioProcessorEditor(QPitchAudioProcessor& p)
     refreshKeyboard();
 
     setResizable(true, true);
-    setResizeLimits(620, 540, 980, 760);
-    setSize(620, 540);
+    setResizeLimits(820, 640, 1180, 860);
+    setSize(860, 680);
     startTimerHz(24);
 }
 
@@ -498,7 +526,7 @@ void QPitchAudioProcessorEditor::timerCallback()
 
     if (pitchDisplay != nullptr)
     {
-        pitchDisplay->setPitches(detectedHz, targetHz);
+        pitchDisplay->setPitches(detectedHz, targetHz, processor.getReferenceFrequency());
         pitchDisplay->setCorrectionCents(processor.getDebugCorrectionCents());
     }
 
@@ -514,33 +542,42 @@ void QPitchAudioProcessorEditor::resized()
     auto titleBounds = topBar.removeFromLeft(140);
     auto pitchBounds = topBar;
 
-    auto mainArea = bounds.removeFromTop(180);
+    auto mainArea = bounds.removeFromTop(270);
 
-    auto sliderRow = mainArea.removeFromTop(120);
+    auto sliderRow = mainArea.removeFromTop(112);
     auto sliderW = sliderRow.getWidth() / 5;
     retuneSpeedSlider->setBounds(sliderRow.removeFromLeft(sliderW).reduced(3));
     noteTransitionSlider->setBounds(sliderRow.removeFromLeft(sliderW).reduced(3));
-    correctionAmountSlider->setBounds(sliderRow.removeFromLeft(sliderW).reduced(3));
-    humanizeSlider->setBounds(sliderRow.removeFromLeft(sliderW).reduced(3));
-    outputGainSlider->setBounds(sliderRow.reduced(3));
+    snappinessSlider->setBounds(sliderRow.removeFromLeft(sliderW).reduced(3));
+    tPainSlider->setBounds(sliderRow.removeFromLeft(sliderW).reduced(3));
+    referenceSlider->setBounds(sliderRow.reduced(3));
+
+    auto sliderRow2 = mainArea.removeFromTop(112);
+    auto sliderW2 = sliderRow2.getWidth() / 5;
+    correctionAmountSlider->setBounds(sliderRow2.removeFromLeft(sliderW2).reduced(3));
+    toleranceCentsSlider->setBounds(sliderRow2.removeFromLeft(sliderW2).reduced(3));
+    toleranceTimeSlider->setBounds(sliderRow2.removeFromLeft(sliderW2).reduced(3));
+    humanizeSlider->setBounds(sliderRow2.removeFromLeft(sliderW2).reduced(3));
+    outputGainSlider->setBounds(sliderRow2.removeFromLeft(sliderW2).reduced(3));
+
+    auto toggleRow = mainArea.removeFromTop(38).reduced(4);
+    const int toggleW = toggleRow.getWidth() / 3;
+    correctionToggle->setBounds(toggleRow.removeFromLeft(toggleW).reduced(4));
+    formantToggle->setBounds(toggleRow.removeFromLeft(toggleW).reduced(4));
 
     pitchDisplay->setBounds(pitchBounds);
 
     auto bottomArea = bounds;
     auto bottomRow = bottomArea.removeFromTop(38);
 
-    auto comboW = bottomRow.getWidth() / 4;
+    auto comboW = bottomRow.getWidth() / 3;
     auto keyLabel = bottomRow.removeFromLeft(comboW).reduced(4);
     keyCombo->setBounds(keyLabel);
 
     auto scaleLabel = bottomRow.removeFromLeft(comboW).reduced(4);
     scaleCombo->setBounds(scaleLabel);
 
-    auto resetLabel = bottomRow.removeFromLeft(comboW).reduced(4);
-    resetScaleButton->setBounds(resetLabel);
-
-    auto toggleLabel = bottomRow.reduced(4);
-    formantToggle->setBounds(toggleLabel);
+    resetScaleButton->setBounds(bottomRow.reduced(4));
 
     auto rangeRow = bottomArea.removeFromTop(42);
     rangeCombo->setBounds(rangeRow.reduced(4));

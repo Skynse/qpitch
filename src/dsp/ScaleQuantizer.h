@@ -3,6 +3,7 @@
 #include <array>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 class ScaleQuantizer {
 public:
@@ -26,6 +27,8 @@ public:
 
     float hzToMidi(float freqHz) const;
     float midiToHz(float midiNote) const;
+    void setReferenceFrequency(float frequencyHz);
+    float getReferenceFrequency() const { return referenceFrequencyHz; }
     int quantizeMidiNote(int midiNote, int rootKey, int scaleType) const;
     float quantize(float freqHz, int rootKey, int scaleType) const;
     float getTargetFrequency(float detectedHz, int rootKey, int scaleType, float correctionAmount) const;
@@ -39,4 +42,5 @@ public:
 private:
     static constexpr float A4_FREQ = 440.0f;
     static constexpr int A4_MIDI = 69;
+    float referenceFrequencyHz = A4_FREQ;
 };

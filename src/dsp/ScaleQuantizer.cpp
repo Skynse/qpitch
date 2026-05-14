@@ -30,12 +30,17 @@ ScaleQuantizer::ScaleQuantizer() {}
 float ScaleQuantizer::hzToMidi(float freqHz) const
 {
     if (freqHz <= 0.0f) return -1.0f;
-    return 69.0f + 12.0f * std::log2(freqHz / A4_FREQ);
+    return 69.0f + 12.0f * std::log2(freqHz / referenceFrequencyHz);
 }
 
 float ScaleQuantizer::midiToHz(float midiNote) const
 {
-    return A4_FREQ * std::pow(2.0f, (midiNote - 69.0f) / 12.0f);
+    return referenceFrequencyHz * std::pow(2.0f, (midiNote - 69.0f) / 12.0f);
+}
+
+void ScaleQuantizer::setReferenceFrequency(float frequencyHz)
+{
+    referenceFrequencyHz = std::clamp(frequencyHz, 400.0f, 480.0f);
 }
 
 int ScaleQuantizer::quantizeMidiNote(int midiNote, int rootKey, int scaleType) const
