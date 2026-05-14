@@ -2,9 +2,8 @@ build/
 cmake-build-*/
 out/
 
-# CMake can fetch these automatically. Force-add them only if you intentionally
+# CMake can fetch this automatically. Force-add it only if you intentionally
 # want an offline vendored repo.
-JUCE/
 clap-juce-extensions/
 
 *.clap

@@ -6,7 +6,7 @@ QPitch is a JUCE pitch-correction audio plugin with VST3 and CLAP builds.
 
 - CMake 3.21+
 - A C++17 compiler
-- Git, when using CMake dependency fetching
+- Git, for cloning submodules and optional CMake dependency fetching
 - Runtime optional: Rubber Band Library (`librubberband`) for the higher-quality live pitch shifter. If it is not installed, QPitch falls back to its built-in phase-vocoder shifter.
 
 Linux build packages vary by distro. On Ubuntu/Debian, start with:
@@ -23,7 +23,20 @@ sudo apt install librubberband2
 
 ## Build
 
-The project can use local `JUCE/` and `clap-juce-extensions/` folders when present. If they are missing, CMake fetches them automatically.
+Clone with submodules so JUCE is available locally:
+
+```sh
+git clone --recurse-submodules https://github.com/Skynse/qpitch.git
+cd qpitch
+```
+
+If you already cloned without submodules:
+
+```sh
+git submodule update --init --recursive
+```
+
+Then build:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -44,9 +57,10 @@ Build outputs:
 
 ## Build With Vendored Dependencies
 
-If you want fully offline builds, commit compatible copies of:
+JUCE is vendored as a Git submodule at `JUCE/`. `clap-juce-extensions` is fetched by CMake automatically unless a local `clap-juce-extensions/` folder is present.
 
-- `JUCE/`
+For a fully offline build, also vendor a compatible copy of:
+
 - `clap-juce-extensions/` including its `clap-libs/clap` and `clap-libs/clap-helpers` subfolders
 
 Then configure with dependency fetching disabled:
