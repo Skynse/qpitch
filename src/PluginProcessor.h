@@ -83,6 +83,8 @@ private:
     juce::AudioBuffer<float> dryBuffer;
     juce::AudioBuffer<float> shiftedBuffer;
     juce::AudioBuffer<float> formantBuffer;
+    std::vector<float> airDryLowpassState;
+    std::vector<float> airWetLowpassState;
 
     double currentSampleRate = 44100.0;
     float currentSmoothedPitch = 0.0f;

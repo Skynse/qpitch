@@ -289,6 +289,8 @@ void QPitchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     dryBuffer.setSize(channels, samplesPerBlock, false, true, true);
     shiftedBuffer.setSize(channels, samplesPerBlock, false, true, true);
     formantBuffer.setSize(channels, samplesPerBlock, false, true, true);
+    airDryLowpassState.assign(static_cast<size_t>(channels), 0.0f);
+    airWetLowpassState.assign(static_cast<size_t>(channels), 0.0f);
 
     currentSmoothedPitch = 0.0f;
     currentPitchRatio = 1.0f;
@@ -320,6 +322,8 @@ void QPitchAudioProcessor::releaseResources()
         shifter.reset();
     for (auto& preserver : formantPreservers)
         preserver.reset();
+    std::fill(airDryLowpassState.begin(), airDryLowpassState.end(), 0.0f);
+    std::fill(airWetLowpassState.begin(), airWetLowpassState.end(), 0.0f);
 }
 
 void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -549,18 +553,34 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
                     dry + offset, shifted + offset, subLen, subRatio);
             }
 
+            const float* processed = shifted;
             if (formantOn && formantAmount > 0.0f && !pitchShifters[static_cast<size_t>(ch)].isUsingRubberBand())
             {
                 formantPreservers[static_cast<size_t>(ch)].process(dry, shifted, formant,
                                                                     numSamples, formantOn, formantAmount);
-                for (int i = 0; i < numSamples; ++i)
-                    chData[i] = currentWetMix >= 0.995f ? formant[i] : dry[i] + (formant[i] - dry[i]) * currentWetMix;
+                processed = formant;
             }
-            else
+
+            float dryLp = airDryLowpassState[static_cast<size_t>(ch)];
+            float wetLp = airWetLowpassState[static_cast<size_t>(ch)];
+            constexpr float airCutoffHz = 5200.0f;
+            constexpr float airPreserve = 0.78f;
+            const float lpCoeff = std::exp(-2.0f * juce::MathConstants<float>::pi * airCutoffHz
+                                           / static_cast<float>(currentSampleRate));
+
+            for (int i = 0; i < numSamples; ++i)
             {
-                for (int i = 0; i < numSamples; ++i)
-                    chData[i] = currentWetMix >= 0.995f ? shifted[i] : dry[i] + (shifted[i] - dry[i]) * currentWetMix;
+                dryLp = dry[i] + lpCoeff * (dryLp - dry[i]);
+                wetLp = processed[i] + lpCoeff * (wetLp - processed[i]);
+
+                const float dryAir = dry[i] - dryLp;
+                const float wetAir = processed[i] - wetLp;
+                const float restored = wetLp + dryAir * airPreserve + wetAir * (1.0f - airPreserve);
+                chData[i] = currentWetMix >= 0.995f ? restored : dry[i] + (restored - dry[i]) * currentWetMix;
             }
+
+            airDryLowpassState[static_cast<size_t>(ch)] = dryLp;
+            airWetLowpassState[static_cast<size_t>(ch)] = wetLp;
         }
     }
 
