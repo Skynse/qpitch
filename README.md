@@ -73,3 +73,19 @@ cmake --build build --target QPitch_CLAP -j
 ## Notes
 
 QPitch dynamically loads Rubber Band at runtime on Linux/macOS. This keeps builds simple and lets the plugin run without bundling Rubber Band, but the best sound quality expects the runtime library to be installed on the user machine.
+
+## Release
+
+GitHub Releases are created by the `release` workflow. Push a version tag:
+
+```sh
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+The workflow builds Linux VST3 and CLAP packages and uploads:
+
+- `QPitch-<version>-linux-vst3.zip`
+- `QPitch-<version>-linux-clap.zip`
+
+You can also run the release workflow manually from GitHub Actions and provide a version like `v1.1.0`.

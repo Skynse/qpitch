@@ -1,0 +1,81 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example v1.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            pkg-config \
+            zip \
+            libx11-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libfreetype-dev \
+            libfontconfig1-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --target QPitch_VST3 QPitch_CLAP -j2
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="${{ inputs.version }}"
+          fi
+
+          mkdir -p dist
+          cp -R build/QPitch_artefacts/Release/VST3/QPitch.vst3 dist/
+          cp -R build/QPitch_artefacts/Release/CLAP/QPitch.clap dist/
+
+          (
+            cd dist
+            zip -r "QPitch-${version}-linux-vst3.zip" QPitch.vst3
+            zip -r "QPitch-${version}-linux-clap.zip" QPitch.clap
+          )
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qpitch-linux
+          path: dist/*.zip
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+          name: QPitch ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+          files: dist/*.zip
+          generate_release_notes: true
