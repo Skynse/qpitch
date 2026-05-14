@@ -83,9 +83,13 @@ git tag v1.1.0
 git push origin v1.1.0
 ```
 
-The workflow builds Linux VST3 and CLAP packages and uploads:
+The workflow builds Linux, macOS, and Windows VST3/CLAP packages and uploads:
 
 - `QPitch-<version>-linux-vst3.zip`
 - `QPitch-<version>-linux-clap.zip`
+- `QPitch-<version>-macos-universal-vst3.zip`
+- `QPitch-<version>-macos-universal-clap.zip`
+- `QPitch-<version>-windows-vst3.zip`
+- `QPitch-<version>-windows-clap.zip`
 
 You can also run the release workflow manually from GitHub Actions and provide a version like `v1.1.0`.

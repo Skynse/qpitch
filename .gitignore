@@ -1,6 +1,7 @@
 build/
 cmake-build-*/
 out/
+qsaturator/
 
 # CMake can fetch this automatically. Force-add it only if you intentionally
 # want an offline vendored repo.

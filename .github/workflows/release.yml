@@ -15,14 +15,36 @@ permissions:
   contents: write
 
 jobs:
-  linux:
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            platform: linux
+            os: ubuntu-latest
+            configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+            build: cmake --build build --target QPitch_VST3 QPitch_CLAP --parallel 2
+          - name: macOS
+            platform: macos-universal
+            os: macos-latest
+            configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+            build: cmake --build build --target QPitch_VST3 QPitch_CLAP --parallel 2
+          - name: Windows
+            platform: windows
+            os: windows-latest
+            configure: cmake -S . -B build
+            build: cmake --build build --config Release --target QPitch_VST3 QPitch_CLAP --parallel 2
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -40,12 +62,13 @@ jobs:
             libfontconfig1-dev
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: ${{ matrix.configure }}
 
       - name: Build
-        run: cmake --build build --target QPitch_VST3 QPitch_CLAP -j2
+        run: ${{ matrix.build }}
 
-      - name: Package
+      - name: Package Linux/macOS
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
@@ -56,21 +79,49 @@ jobs:
             version="${{ inputs.version }}"
           fi
 
-          mkdir -p dist
-          cp -R build/QPitch_artefacts/Release/VST3/QPitch.vst3 dist/
-          cp -R build/QPitch_artefacts/Release/CLAP/QPitch.clap dist/
+          mkdir -p dist package
+          cp -R build/QPitch_artefacts/Release/VST3/QPitch.vst3 package/
+          cp -R build/QPitch_artefacts/Release/CLAP/QPitch.clap package/
 
           (
-            cd dist
-            zip -r "QPitch-${version}-linux-vst3.zip" QPitch.vst3
-            zip -r "QPitch-${version}-linux-clap.zip" QPitch.clap
+            cd package
+            zip -r "../dist/QPitch-${version}-${{ matrix.platform }}-vst3.zip" QPitch.vst3
+            zip -r "../dist/QPitch-${version}-${{ matrix.platform }}-clap.zip" QPitch.clap
           )
 
-      - name: Upload build artifacts
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $version = $env:GITHUB_REF_NAME
+          } else {
+            $version = "${{ inputs.version }}"
+          }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item -Recurse -Force build/QPitch_artefacts/Release/VST3/QPitch.vst3 package/
+          Copy-Item -Recurse -Force build/QPitch_artefacts/Release/CLAP/QPitch.clap package/
+          Compress-Archive -Path package/QPitch.vst3 -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-vst3.zip" -Force
+          Compress-Archive -Path package/QPitch.clap -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-clap.zip" -Force
+
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: qpitch-linux
+          name: qpitch-${{ matrix.platform }}
           path: dist/*.zip
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

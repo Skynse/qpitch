@@ -5,14 +5,33 @@ on:
   pull_request:
 
 jobs:
-  linux:
-    runs-on: ubuntu-latest
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+            build: cmake --build build --target QPitch_VST3 QPitch_CLAP --parallel 2
+          - name: macOS
+            os: macos-latest
+            configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+            build: cmake --build build --target QPitch_VST3 QPitch_CLAP --parallel 2
+          - name: Windows
+            os: windows-latest
+            configure: cmake -S . -B build
+            build: cmake --build build --config Release --target QPitch_VST3 QPitch_CLAP --parallel 2
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -29,7 +48,7 @@ jobs:
             libfontconfig1-dev
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: ${{ matrix.configure }}
 
       - name: Build
-        run: cmake --build build --target QPitch_VST3 QPitch_CLAP -j2
+        run: ${{ matrix.build }}
