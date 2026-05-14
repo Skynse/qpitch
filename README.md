@@ -2,6 +2,10 @@
 
 QPitch is a JUCE pitch-correction audio plugin with VST3 and CLAP builds.
 
+No bullshit, just a quick, easy to use auto-tuning plugin with formant preservation.
+
+Detects the main frequency -> maps to midi -> pitch shifts -> corrects formants.
+
 ![QPitch plugin UI](docs/qpitch-ui.png)
 
 [Watch the demo](docs/qpitch-demo.mp4)
