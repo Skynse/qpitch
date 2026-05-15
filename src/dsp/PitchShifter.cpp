@@ -123,6 +123,7 @@ void PitchShifter::reset()
     std::fill(sumPhase.begin(), sumPhase.end(), 0.0f);
     std::fill(synthMaxMag.begin(), synthMaxMag.end(), 0.0f);
     rover = fifoLatency;
+    lastProcessedRatio = 1.0f;
 }
 
 void PitchShifter::process(const float* input, float* output, int numSamples, float pitchRatio)
@@ -140,6 +141,20 @@ void PitchShifter::process(const float* input, float* output, int numSamples, fl
     }
 
     const float clampedRatio = std::clamp(pitchRatio, 0.50f, 2.0f);
+
+    // When the ratio transitions back to near-unity (< ~1 cent of correction), reset
+    // the phase accumulators. The correction is inaudible at this threshold so the
+    // discontinuity is masked. Without this, sumPhase retains state from the previous
+    // ratio and produces spectral distortion (comb filtering / "lowpass" sound) for
+    // several frames until it re-stabilizes.
+    constexpr float kUnityThresh = 0.0006f; // ~1 cent
+    if (std::abs(clampedRatio - 1.0f) < kUnityThresh &&
+        std::abs(lastProcessedRatio - 1.0f) >= kUnityThresh)
+    {
+        std::fill(lastPhase.begin(), lastPhase.end(), 0.0f);
+        std::fill(sumPhase.begin(), sumPhase.end(), 0.0f);
+    }
+    lastProcessedRatio = clampedRatio;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -262,7 +277,7 @@ void PitchShifter::processRubberBand(const float* input, float* output, int numS
         if (rbOutputRead < rbOutputAvailable)
             output[i] = rbOutputBlock[rbOutputRead++];
         else
-            output[i] = input[i];
+            output[i] = 0.0f; // silence during initial latency fill — avoids comb filter from mixing dry+shifted
 
         if (rbInputFill == rbBlockSize)
         {

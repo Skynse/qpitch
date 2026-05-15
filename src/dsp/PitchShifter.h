@@ -86,4 +86,5 @@ private:
     int fifoLatency = kFftSize - kStepSize;
     double sampleRate = 44100.0;
     bool prepared = false;
+    float lastProcessedRatio = 1.0f;
 };
