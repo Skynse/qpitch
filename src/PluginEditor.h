@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 class QPitchAudioProcessor;
+class QPitchLookAndFeel;
 
 class QPitchAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                          private juce::Timer {
@@ -43,6 +44,12 @@ private:
 
     std::unique_ptr<PitchDisplay> pitchDisplay;
     std::unique_ptr<ScaleKeyboard> scaleKeyboard;
+    std::unique_ptr<QPitchLookAndFeel> lf;
+
+    juce::Rectangle<int> timingPanelBounds;
+    juce::Rectangle<int> correctionPanelBounds;
+    juce::Rectangle<int> comboRowBounds;
+    juce::Rectangle<int> rangeRowBounds;
 
     using SliderAttach = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboAttach = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
