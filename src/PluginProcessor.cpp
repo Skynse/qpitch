@@ -337,7 +337,30 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 
     float outputGainDb = outputGainParam->get();
 
-    if (bypass || !correctionOnParam->get() || correctionAmountParam->get() <= 0.0f)
+    const bool correctionActive = !bypass
+                                  && correctionOnParam->get()
+                                  && correctionAmountParam->get() > 0.0f;
+
+    if (correctionActive && !wasCorrectionActive)
+    {
+        for (auto& shifter : pitchShifters)
+            shifter.reset();
+        for (auto& preserver : formantPreservers)
+            preserver.reset();
+
+        smoothedCorrectionCents = 0.0f;
+        currentPitchRatio = 1.0f;
+        lockedTargetMidi = -1;
+        smoothedTargetMidi = -1.0f;
+        smoothedInputMidi = -1.0f;
+        pitchHoldSamples = 0;
+        pendingTargetMidi = -1;
+        pendingTargetSamples = 0;
+    }
+
+    wasCorrectionActive = correctionActive;
+
+    if (!correctionActive)
     {
         if (outputGainDb != 0.0f)
             buffer.applyGain(juce::Decibels::decibelsToGain(outputGainDb));

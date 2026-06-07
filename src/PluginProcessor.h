@@ -101,6 +101,7 @@ private:
     int currentScale = 0;
     int currentRange = 6;
     bool bypass = false;
+    bool wasCorrectionActive = false;
     std::atomic<float> debugDetectedHz { 0.0f };
     std::atomic<float> debugTargetHz { 0.0f };
     std::atomic<float> debugCorrectionCents { 0.0f };

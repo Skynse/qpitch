@@ -6,7 +6,9 @@
 #include <complex>
 #include <memory>
 
-#if !defined(_WIN32)
+#if defined(_WIN32)
+  #include <windows.h>
+#else
   #include <dlfcn.h>
 #endif
 
@@ -40,6 +42,7 @@ private:
     bool prepareRubberBand();
     void processRubberBand(const float* input, float* output, int numSamples, float pitchRatio);
     void processFrame(float pitchRatio);
+    void resetPhaseAccumulators();
 
     static constexpr int kFftOrder = 10;
     static constexpr int kFftSize = 1 << kFftOrder;
@@ -64,9 +67,7 @@ private:
     std::vector<float> rbInputBlock;
     std::vector<float> rbOutputBlock;
 
-#if !defined(_WIN32)
     void* rbLibrary = nullptr;
-#endif
     RubberBandLiveState rbState = nullptr;
     RbNewFn rbNew = nullptr;
     RbDeleteFn rbDelete = nullptr;
@@ -84,6 +85,7 @@ private:
 
     int rover = 0;
     int fifoLatency = kFftSize - kStepSize;
+    int warmupSamplesRemaining = 0;
     double sampleRate = 44100.0;
     bool prepared = false;
     float lastProcessedRatio = 1.0f;

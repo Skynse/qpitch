@@ -1,4 +1,69 @@
 #include "PitchShifter.h"
+#include <juce_core/juce_core.h>
+
+namespace
+{
+void* loadRubberBandSymbol(void* library, const char* name)
+{
+#if defined(_WIN32)
+    return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(library), name));
+#else
+    return dlsym(library, name);
+#endif
+}
+
+void* openRubberBandLibraryHandle()
+{
+    juce::StringArray names;
+#if defined(_WIN32)
+    names.add("rubberband-3.dll");
+    names.add("rubberband.dll");
+    names.add("librubberband-2.dll");
+    names.add("librubberband-3.dll");
+#elif defined(__APPLE__)
+    names.add("librubberband.3.dylib");
+    names.add("librubberband.dylib");
+#else
+    names.add("librubberband.so.3");
+    names.add("librubberband.so");
+#endif
+
+    juce::Array<juce::File> searchDirs;
+    searchDirs.add(juce::File());
+
+#if defined(_WIN32)
+    wchar_t modulePath[MAX_PATH] = {};
+    if (GetModuleFileNameW(static_cast<HMODULE>(juce::Process::getCurrentModuleInstanceHandle()),
+                           modulePath,
+                           static_cast<DWORD>(juce::numElementsInArray(modulePath))) != 0)
+        searchDirs.add(juce::File(juce::String(modulePath)).getParentDirectory());
+#else
+    Dl_info info {};
+    if (dladdr(reinterpret_cast<void*>(&openRubberBandLibraryHandle), &info) != 0 && info.dli_fname != nullptr)
+        searchDirs.add(juce::File(juce::String(info.dli_fname)).getParentDirectory());
+#endif
+
+    for (const auto& dir : searchDirs)
+    {
+        for (const auto& name : names)
+        {
+            const juce::String path = dir.getFullPathName().isEmpty()
+                ? name
+                : dir.getChildFile(name).getFullPathName();
+
+#if defined(_WIN32)
+            if (auto* handle = LoadLibraryW(juce::String(path).toWideCharPointer()))
+                return handle;
+#else
+            if (auto* handle = dlopen(path.toRawUTF8(), RTLD_NOW | RTLD_LOCAL))
+                return handle;
+#endif
+        }
+    }
+
+    return nullptr;
+}
+} // namespace
 
 PitchShifter::PitchShifter() {}
 
@@ -30,9 +95,7 @@ PitchShifter& PitchShifter::operator=(PitchShifter&& other) noexcept
     rbInputBlock = std::move(other.rbInputBlock);
     rbOutputBlock = std::move(other.rbOutputBlock);
 
-#if !defined(_WIN32)
     rbLibrary = other.rbLibrary;
-#endif
     rbState = other.rbState;
     rbNew = other.rbNew;
     rbDelete = other.rbDelete;
@@ -50,12 +113,12 @@ PitchShifter& PitchShifter::operator=(PitchShifter&& other) noexcept
 
     rover = other.rover;
     fifoLatency = other.fifoLatency;
+    warmupSamplesRemaining = other.warmupSamplesRemaining;
     sampleRate = other.sampleRate;
     prepared = other.prepared;
+    lastProcessedRatio = other.lastProcessedRatio;
 
-#if !defined(_WIN32)
     other.rbLibrary = nullptr;
-#endif
     other.rbState = nullptr;
     other.rbNew = nullptr;
     other.rbDelete = nullptr;
@@ -101,6 +164,7 @@ void PitchShifter::prepare(double sr, int)
 
     fifoLatency = kFftSize - kStepSize;
     rover = fifoLatency;
+    warmupSamplesRemaining = fifoLatency;
     rubberBandReady = prepareRubberBand();
     prepared = true;
 }
@@ -123,7 +187,14 @@ void PitchShifter::reset()
     std::fill(sumPhase.begin(), sumPhase.end(), 0.0f);
     std::fill(synthMaxMag.begin(), synthMaxMag.end(), 0.0f);
     rover = fifoLatency;
+    warmupSamplesRemaining = fifoLatency;
     lastProcessedRatio = 1.0f;
+}
+
+void PitchShifter::resetPhaseAccumulators()
+{
+    std::fill(lastPhase.begin(), lastPhase.end(), 0.0f);
+    std::fill(sumPhase.begin(), sumPhase.end(), 0.0f);
 }
 
 void PitchShifter::process(const float* input, float* output, int numSamples, float pitchRatio)
@@ -142,24 +213,28 @@ void PitchShifter::process(const float* input, float* output, int numSamples, fl
 
     const float clampedRatio = std::clamp(pitchRatio, 0.50f, 2.0f);
 
-    // When the ratio transitions back to near-unity (< ~1 cent of correction), reset
-    // the phase accumulators. The correction is inaudible at this threshold so the
-    // discontinuity is masked. Without this, sumPhase retains state from the previous
-    // ratio and produces spectral distortion (comb filtering / "lowpass" sound) for
-    // several frames until it re-stabilizes.
+    // Reset phase state when crossing unity — stale accumulators in the FFT
+    // fallback cause destructive overlap-add cancellation (silence / comb filtering).
     constexpr float kUnityThresh = 0.0006f; // ~1 cent
-    if (std::abs(clampedRatio - 1.0f) < kUnityThresh &&
-        std::abs(lastProcessedRatio - 1.0f) >= kUnityThresh)
-    {
-        std::fill(lastPhase.begin(), lastPhase.end(), 0.0f);
-        std::fill(sumPhase.begin(), sumPhase.end(), 0.0f);
-    }
+    const bool nearUnity = std::abs(clampedRatio - 1.0f) < kUnityThresh;
+    const bool wasNearUnity = std::abs(lastProcessedRatio - 1.0f) < kUnityThresh;
+    if (nearUnity != wasNearUnity)
+        resetPhaseAccumulators();
     lastProcessedRatio = clampedRatio;
 
     for (int i = 0; i < numSamples; ++i)
     {
         inputFifo[static_cast<size_t>(rover)] = input[i];
-        output[i] = outputFifo[static_cast<size_t>(rover - fifoLatency)];
+
+        if (warmupSamplesRemaining > 0)
+        {
+            output[i] = input[i];
+            --warmupSamplesRemaining;
+        }
+        else
+        {
+            output[i] = outputFifo[static_cast<size_t>(rover - fifoLatency)];
+        }
 
         if (++rover >= kFftSize)
         {
@@ -178,11 +253,15 @@ void PitchShifter::closeRubberBand()
         rbDelete(rbState);
     rbState = nullptr;
 
-#if !defined(_WIN32)
     if (rbLibrary != nullptr)
+    {
+#if defined(_WIN32)
+        FreeLibrary(static_cast<HMODULE>(rbLibrary));
+#else
         dlclose(rbLibrary);
-    rbLibrary = nullptr;
 #endif
+    }
+    rbLibrary = nullptr;
 
     rbNew = nullptr;
     rbDelete = nullptr;
@@ -196,30 +275,19 @@ void PitchShifter::closeRubberBand()
 
 bool PitchShifter::prepareRubberBand()
 {
-#if defined(_WIN32)
-    return false;
-#else
     closeRubberBand();
 
-   #if defined(__APPLE__)
-    rbLibrary = dlopen("librubberband.3.dylib", RTLD_NOW | RTLD_LOCAL);
-    if (rbLibrary == nullptr)
-        rbLibrary = dlopen("librubberband.dylib", RTLD_NOW | RTLD_LOCAL);
-   #else
-    rbLibrary = dlopen("librubberband.so.3", RTLD_NOW | RTLD_LOCAL);
-    if (rbLibrary == nullptr)
-        rbLibrary = dlopen("librubberband.so", RTLD_NOW | RTLD_LOCAL);
-   #endif
+    rbLibrary = openRubberBandLibraryHandle();
     if (rbLibrary == nullptr)
         return false;
 
-    rbNew = reinterpret_cast<RbNewFn>(dlsym(rbLibrary, "rubberband_live_new"));
-    rbDelete = reinterpret_cast<RbDeleteFn>(dlsym(rbLibrary, "rubberband_live_delete"));
-    rbReset = reinterpret_cast<RbResetFn>(dlsym(rbLibrary, "rubberband_live_reset"));
-    rbSetPitch = reinterpret_cast<RbSetPitchFn>(dlsym(rbLibrary, "rubberband_live_set_pitch_scale"));
-    rbSetFormantOption = reinterpret_cast<RbSetFormantOptionFn>(dlsym(rbLibrary, "rubberband_live_set_formant_option"));
-    rbGetBlockSize = reinterpret_cast<RbGetBlockSizeFn>(dlsym(rbLibrary, "rubberband_live_get_block_size"));
-    rbShift = reinterpret_cast<RbShiftFn>(dlsym(rbLibrary, "rubberband_live_shift"));
+    rbNew = reinterpret_cast<RbNewFn>(loadRubberBandSymbol(rbLibrary, "rubberband_live_new"));
+    rbDelete = reinterpret_cast<RbDeleteFn>(loadRubberBandSymbol(rbLibrary, "rubberband_live_delete"));
+    rbReset = reinterpret_cast<RbResetFn>(loadRubberBandSymbol(rbLibrary, "rubberband_live_reset"));
+    rbSetPitch = reinterpret_cast<RbSetPitchFn>(loadRubberBandSymbol(rbLibrary, "rubberband_live_set_pitch_scale"));
+    rbSetFormantOption = reinterpret_cast<RbSetFormantOptionFn>(loadRubberBandSymbol(rbLibrary, "rubberband_live_set_formant_option"));
+    rbGetBlockSize = reinterpret_cast<RbGetBlockSizeFn>(loadRubberBandSymbol(rbLibrary, "rubberband_live_get_block_size"));
+    rbShift = reinterpret_cast<RbShiftFn>(loadRubberBandSymbol(rbLibrary, "rubberband_live_shift"));
 
     if (rbNew == nullptr || rbDelete == nullptr || rbReset == nullptr
         || rbSetPitch == nullptr || rbGetBlockSize == nullptr || rbShift == nullptr)
@@ -250,7 +318,6 @@ bool PitchShifter::prepareRubberBand()
     rbOutputAvailable = 0;
     setFormantCorrected(formantCorrected);
     return true;
-#endif
 }
 
 void PitchShifter::setFormantCorrected(bool shouldCorrect)
@@ -277,7 +344,7 @@ void PitchShifter::processRubberBand(const float* input, float* output, int numS
         if (rbOutputRead < rbOutputAvailable)
             output[i] = rbOutputBlock[rbOutputRead++];
         else
-            output[i] = 0.0f; // silence during initial latency fill — avoids comb filter from mixing dry+shifted
+            output[i] = input[i];
 
         if (rbInputFill == rbBlockSize)
         {
