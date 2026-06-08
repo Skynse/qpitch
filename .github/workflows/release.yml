@@ -121,9 +121,8 @@ jobs:
           Copy-Item -Recurse -Force build/QPitch_artefacts/Release/CLAP/QPitch.clap package/
           Copy-Item -Force $rbDll.FullName package/
           Copy-Item -Force $rbDll.FullName package/QPitch.vst3/Contents/x86_64-win/
-          Copy-Item -Force $rbDll.FullName package/QPitch.clap/
           Compress-Archive -Path package/QPitch.vst3 -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-vst3.zip" -Force
-          Compress-Archive -Path package/QPitch.clap -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-clap.zip" -Force
+          Compress-Archive -Path package/QPitch.clap, "package/$($rbDll.Name)" -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-clap.zip" -Force
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
