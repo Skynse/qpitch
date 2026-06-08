@@ -63,6 +63,7 @@ jobs:
 
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -99,6 +100,8 @@ jobs:
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
         run: |
           if ($env:GITHUB_REF_TYPE -eq "tag") {
             $version = $env:GITHUB_REF_NAME
@@ -106,13 +109,19 @@ jobs:
             $version = "${{ inputs.version }}"
           }
 
+          $rbDll = Get-ChildItem "$env:MSYS2_ROOT/mingw64/bin" -Filter "librubberband*.dll" |
+            Select-Object -First 1
+          if (-not $rbDll) {
+            throw "Rubber Band DLL not found under $env:MSYS2_ROOT/mingw64/bin"
+          }
+
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           New-Item -ItemType Directory -Force -Path package | Out-Null
           Copy-Item -Recurse -Force build/QPitch_artefacts/Release/VST3/QPitch.vst3 package/
           Copy-Item -Recurse -Force build/QPitch_artefacts/Release/CLAP/QPitch.clap package/
-          Copy-Item -Force C:/msys64/mingw64/bin/librubberband-2.dll package/
-          Copy-Item -Force C:/msys64/mingw64/bin/librubberband-2.dll package/QPitch.vst3/Contents/x86_64-win/
-          Copy-Item -Force C:/msys64/mingw64/bin/librubberband-2.dll package/QPitch.clap/
+          Copy-Item -Force $rbDll.FullName package/
+          Copy-Item -Force $rbDll.FullName package/QPitch.vst3/Contents/x86_64-win/
+          Copy-Item -Force $rbDll.FullName package/QPitch.clap/
           Compress-Archive -Path package/QPitch.vst3 -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-vst3.zip" -Force
           Compress-Archive -Path package/QPitch.clap -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-clap.zip" -Force
 
