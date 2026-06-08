@@ -80,6 +80,10 @@ target_sources(QPitch PRIVATE
     src/dsp/FormantPreserver.cpp
 )
 
+if(WIN32)
+    target_compile_definitions(QPitch PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 target_compile_definitions(QPitch PUBLIC
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_REPORT_APP_USAGE=0
