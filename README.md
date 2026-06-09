@@ -15,18 +15,11 @@ Detects the main frequency -> maps to midi -> pitch shifts -> corrects formants.
 - CMake 3.21+
 - A C++17 compiler
 - Git, for cloning submodules and optional CMake dependency fetching
-- Runtime optional: Rubber Band Library (`librubberband`) for the higher-quality live pitch shifter. If it is not installed, QPitch falls back to its built-in phase-vocoder shifter.
 
 Linux build packages vary by distro. On Ubuntu/Debian, start with:
 
 ```sh
 sudo apt install build-essential cmake git pkg-config libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libfreetype-dev libfontconfig1-dev
-```
-
-Optional Rubber Band runtime:
-
-```sh
-sudo apt install librubberband2
 ```
 
 ## Build

@@ -272,6 +272,26 @@ int QPitchAudioProcessor::findNearestScaleMidi(float midiNote) const
     return bestMidi;
 }
 
+bool QPitchAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+{
+    const auto in = layouts.getMainInputChannelSet();
+    const auto out = layouts.getMainOutputChannelSet();
+
+    if (in.isDisabled() && out.isDisabled())
+        return true;
+
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+        return false;
+
+    if (in.isDisabled())
+        return true;
+
+    if (in == juce::AudioChannelSet::mono())
+        return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
+
+    return in == juce::AudioChannelSet::stereo() && out == juce::AudioChannelSet::stereo();
+}
+
 void QPitchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
@@ -389,7 +409,7 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     float* channelData = buffer.getWritePointer(0);
     float detectedHz = pitchDetector.detectPitch(channelData, numSamples);
     const float confidence = pitchDetector.getConfidence();
-    const bool pitchValid = detectedHz > 0.0f && confidence > 0.62f;
+    const bool pitchValid = detectedHz > 0.0f && confidence > 0.50f;
     const float speedMsCurrent = retuneSpeedParam != nullptr ? retuneSpeedParam->get() : 15.0f;
     const float transitionMsCurrent = noteTransitionParam != nullptr ? noteTransitionParam->get() : 120.0f;
     const float effectiveSpeedMs = std::max(0.0f, speedMsCurrent * (1.0f - snappiness * 0.85f) - tPain * 8.0f);
@@ -546,19 +566,30 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         }
     }
 
+    constexpr float kUnityRatio = 0.001f;
+    if (std::abs(currentPitchRatio - 1.0f) < kUnityRatio)
+    {
+        if (totalNumInputChannels == 1 && totalNumOutputChannels > 1)
+            buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+
+        if (outputGainDb != 0.0f)
+            buffer.applyGain(juce::Decibels::decibelsToGain(outputGainDb));
+        return;
+    }
+
     const float targetWet = 1.0f;
     currentWetMix = targetWet;
 
+    const int numProcessChannels = std::max(1, totalNumInputChannels);
+
     if (true)
     {
-        for (int ch = 0; ch < totalNumInputChannels; ++ch)
+        for (int ch = 0; ch < numProcessChannels; ++ch)
         {
             float* chData = buffer.getWritePointer(ch);
             const float* dry = dryBuffer.getReadPointer(ch);
             float* shifted = shiftedBuffer.getWritePointer(ch);
             float* formant = formantBuffer.getWritePointer(ch);
-            pitchShifters[static_cast<size_t>(ch)].setFormantCorrected(formantOn);
-
             constexpr int kSubBlockSize = 64;
             for (int offset = 0; offset < numSamples; offset += kSubBlockSize)
             {
@@ -572,7 +603,7 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
                     dry + offset, shifted + offset, subLen, subRatio);
             }
 
-            if (formantOn && formantAmount > 0.0f && !pitchShifters[static_cast<size_t>(ch)].isUsingRubberBand())
+            if (formantOn && formantAmount > 0.0f)
             {
                 formantPreservers[static_cast<size_t>(ch)].process(dry, shifted, formant,
                                                                     numSamples, formantOn, formantAmount);
@@ -585,6 +616,9 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
                     chData[i] = currentWetMix >= 0.995f ? shifted[i] : dry[i] + (shifted[i] - dry[i]) * currentWetMix;
             }
         }
+
+        if (totalNumInputChannels == 1 && totalNumOutputChannels > 1)
+            buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
     }
 
     if (outputGainDb != 0.0f)

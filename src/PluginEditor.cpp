@@ -634,9 +634,10 @@ QPitchAudioProcessorEditor::QPitchAudioProcessorEditor(QPitchAudioProcessor& p)
     scaleCombo->onChange = refreshKeyboard;
     refreshKeyboard();
 
+    setOpaque(true);
     setResizable(true, true);
-    setResizeLimits(820, 680, 1200, 920);
-    setSize(880, 720);
+    setResizeLimits(600, 480, 1200, 920);
+    setSize(720, 580);
     startTimerHz(24);
 }
 

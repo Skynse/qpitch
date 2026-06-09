@@ -101,7 +101,6 @@ target_link_libraries(QPitch PRIVATE
     juce::juce_dsp
     juce::juce_gui_basics
     clap_juce_extensions
-    ${CMAKE_DL_LIBS}
 )
 
 target_include_directories(QPitch PRIVATE
