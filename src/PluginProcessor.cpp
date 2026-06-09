@@ -19,6 +19,11 @@ static const juce::String paramFormantOn = "formant_on";
 static const juce::String paramHumanize = "humanize";
 static const juce::String paramOutputGain = "output_gain";
 
+static juce::String noteParamId(int pitchClass)
+{
+    return "note_" + juce::String(pitchClass);
+}
+
 QPitchAudioProcessor::QPitchAudioProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
@@ -40,6 +45,9 @@ QPitchAudioProcessor::QPitchAudioProcessor()
     formantOnParam = static_cast<juce::AudioParameterBool*>(vts.getParameter(paramFormantOn));
     humanizeParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramHumanize));
     outputGainParam = static_cast<juce::AudioParameterFloat*>(vts.getParameter(paramOutputGain));
+    for (int note = 0; note < 12; ++note)
+        customNoteParams[static_cast<size_t>(note)] =
+            static_cast<juce::AudioParameterBool*>(vts.getParameter(noteParamId(note)));
 
     vts.addParameterListener(paramRetuneSpeed, this);
     vts.addParameterListener(paramReferenceFrequency, this);
@@ -151,6 +159,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout QPitchAudioProcessor::create
         juce::AudioParameterFloatAttributes()
             .withStringFromValueFunction([](float v, int) { return juce::String(v, 1) + " dB"; })));
 
+    static const char* pitchClassNames[] = {
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+    };
+    for (int note = 0; note < 12; ++note)
+    {
+        params.push_back(std::make_unique<juce::AudioParameterBool>(
+            noteParamId(note), juce::String("Note ") + pitchClassNames[note], true));
+    }
+
     return { params.begin(), params.end() };
 }
 
@@ -169,17 +186,27 @@ void QPitchAudioProcessor::parameterChanged(const juce::String& parameterID, flo
     }
     else if (parameterID == paramKey)
     {
-        currentKey = static_cast<int>(newValue);
+        const int newKey = static_cast<int>(newValue);
+        if (newKey == currentKey)
+            return;
+
+        currentKey = newKey;
         lockedTargetMidi = -1;
         updateScaleMask();
-        resetCustomNotesToScale();
+        if (!isRestoringState)
+            resetCustomNotesToScale();
     }
     else if (parameterID == paramScale)
     {
-        currentScale = static_cast<int>(newValue);
+        const int newScale = static_cast<int>(newValue);
+        if (newScale == currentScale)
+            return;
+
+        currentScale = newScale;
         lockedTargetMidi = -1;
         updateScaleMask();
-        resetCustomNotesToScale();
+        if (!isRestoringState)
+            resetCustomNotesToScale();
     }
     else if (parameterID == paramRange)
     {
@@ -211,13 +238,16 @@ void QPitchAudioProcessor::updateScaleMask()
 bool QPitchAudioProcessor::isCustomNoteEnabled(int noteClass) const
 {
     noteClass = (noteClass % 12 + 12) % 12;
-    return customNoteMask[static_cast<size_t>(noteClass)].load();
+    if (auto* param = customNoteParams[static_cast<size_t>(noteClass)])
+        return param->get();
+    return false;
 }
 
 void QPitchAudioProcessor::setCustomNoteEnabled(int noteClass, bool enabled)
 {
     noteClass = (noteClass % 12 + 12) % 12;
-    customNoteMask[static_cast<size_t>(noteClass)].store(enabled);
+    if (auto* param = customNoteParams[static_cast<size_t>(noteClass)])
+        param->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
     lockedTargetMidi = -1;
     pendingTargetMidi = -1;
     pendingTargetSamples = 0;
@@ -227,7 +257,11 @@ void QPitchAudioProcessor::setCustomNoteEnabled(int noteClass, bool enabled)
 void QPitchAudioProcessor::resetCustomNotesToScale()
 {
     for (int note = 0; note < 12; ++note)
-        customNoteMask[static_cast<size_t>(note)].store(currentScaleMask[static_cast<size_t>((note - currentKey + 12) % 12)]);
+    {
+        const bool enabled = currentScaleMask[static_cast<size_t>((note - currentKey + 12) % 12)];
+        if (auto* param = customNoteParams[static_cast<size_t>(note)])
+            param->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
+    }
     lockedTargetMidi = -1;
     smoothedTargetMidi = -1.0f;
 }
@@ -282,7 +316,7 @@ int QPitchAudioProcessor::findNearestScaleMidi(float midiNote) const
     for (int candidate = center - 12; candidate <= center + 12; ++candidate)
     {
         const int noteClass = (candidate % 12 + 12) % 12;
-        if (customNoteMask[static_cast<size_t>(noteClass)].load())
+        if (isCustomNoteEnabled(noteClass))
         {
             const float distance = std::abs(static_cast<float>(candidate) - midiNote);
             if (distance < bestDistance)
@@ -647,8 +681,39 @@ void QPitchAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 void QPitchAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
-    if (xmlState != nullptr && xmlState->hasTagName(vts.state.getType()))
-        vts.replaceState(juce::ValueTree::fromXml(*xmlState));
+    if (xmlState == nullptr || !xmlState->hasTagName(vts.state.getType()))
+        return;
+
+    auto state = juce::ValueTree::fromXml(*xmlState);
+    const bool hasNoteParams =
+        state.getChildWithProperty(juce::Identifier("id"), noteParamId(0)).isValid();
+
+    isRestoringState = true;
+    vts.replaceState(state);
+
+    currentKey = keyParam->getIndex();
+    currentScale = scaleParam->getIndex();
+    currentRange = rangeParam->getIndex();
+    updateScaleMask();
+
+    if (!hasNoteParams)
+    {
+        if (state.hasProperty("customNoteMask"))
+        {
+            const int maskBits = static_cast<int>(state.getProperty("customNoteMask"));
+            for (int note = 0; note < 12; ++note)
+            {
+                if (auto* param = customNoteParams[static_cast<size_t>(note)])
+                    param->setValueNotifyingHost((maskBits & (1 << note)) != 0 ? 1.0f : 0.0f);
+            }
+        }
+        else
+        {
+            resetCustomNotesToScale();
+        }
+    }
+
+    isRestoringState = false;
 }
 
 juce::AudioProcessorEditor* QPitchAudioProcessor::createEditor()

@@ -624,15 +624,26 @@ QPitchAudioProcessorEditor::QPitchAudioProcessorEditor(QPitchAudioProcessor& p)
     addAndMakeVisible(*pitchDisplay);
     addAndMakeVisible(*scaleKeyboard);
 
-    auto refreshKeyboard = [this]()
+    auto syncKeyboardDisplay = [this]()
     {
-        processor.resetCustomNotesToScale();
         if (scaleKeyboard && keyCombo && scaleCombo)
             scaleKeyboard->setKeyAndScale(keyCombo->getSelectedItemIndex(), scaleCombo->getSelectedItemIndex());
     };
-    keyCombo->onChange   = refreshKeyboard;
-    scaleCombo->onChange = refreshKeyboard;
-    refreshKeyboard();
+    keyCombo->onChange = [this, syncKeyboardDisplay]()
+    {
+        syncKeyboardDisplay();
+        if (scaleKeyboard)
+            scaleKeyboard->repaint();
+    };
+    scaleCombo->onChange = [this, syncKeyboardDisplay]()
+    {
+        syncKeyboardDisplay();
+        if (scaleKeyboard)
+            scaleKeyboard->repaint();
+    };
+    syncKeyboardDisplay();
+    if (scaleKeyboard)
+        scaleKeyboard->repaint();
 
     setOpaque(true);
     setResizable(true, true);

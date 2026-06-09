@@ -111,7 +111,8 @@ private:
     std::atomic<float> debugCorrectionCents { 0.0f };
 
     std::array<bool, 12> currentScaleMask;
-    std::array<std::atomic<bool>, 12> customNoteMask;
+    std::array<juce::AudioParameterBool*, 12> customNoteParams {};
+    bool isRestoringState = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(QPitchAudioProcessor)
 };
