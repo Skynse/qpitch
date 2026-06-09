@@ -56,6 +56,7 @@ private:
     void smoothPitch(float targetHz, int numSamples);
     void updateScaleMask();
     void updatePitchRange();
+    void ensureProcessingChannels(int numChannels, int numSamples);
     int findNearestScaleMidi(float midiNote) const;
 
     juce::AudioProcessorValueTreeState vts;
@@ -84,6 +85,9 @@ private:
     juce::AudioBuffer<float> dryBuffer;
     juce::AudioBuffer<float> shiftedBuffer;
     juce::AudioBuffer<float> formantBuffer;
+    std::vector<float> airLpDry;
+    std::vector<float> airLpShift;
+    float airLpCoeff = 0.0f;
 
     double currentSampleRate = 44100.0;
     float currentSmoothedPitch = 0.0f;
@@ -102,7 +106,6 @@ private:
     int currentScale = 0;
     int currentRange = 6;
     bool bypass = false;
-    bool wasCorrectionActive = false;
     std::atomic<float> debugDetectedHz { 0.0f };
     std::atomic<float> debugTargetHz { 0.0f };
     std::atomic<float> debugCorrectionCents { 0.0f };

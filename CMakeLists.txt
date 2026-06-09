@@ -106,3 +106,31 @@ target_link_libraries(QPitch PRIVATE
 target_include_directories(QPitch PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    add_executable(qpitch_ifft_recon tools/ifft_recon_test.cpp)
+    target_link_libraries(qpitch_ifft_recon PRIVATE juce::juce_dsp)
+    target_compile_definitions(qpitch_ifft_recon PRIVATE JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+
+    add_executable(qpitch_vocoder_roundtrip tools/vocoder_roundtrip_test.cpp)
+    target_link_libraries(qpitch_vocoder_roundtrip PRIVATE juce::juce_dsp)
+    target_compile_definitions(qpitch_vocoder_roundtrip PRIVATE JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+
+    add_executable(qpitch_forward_debug tools/forward_debug_test.cpp)
+    target_link_libraries(qpitch_forward_debug PRIVATE juce::juce_dsp)
+    target_compile_definitions(qpitch_forward_debug PRIVATE JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+
+    add_executable(qpitch_fft_test tools/fft_scaling_test.cpp)
+    target_link_libraries(qpitch_fft_test PRIVATE juce::juce_dsp)
+    target_compile_definitions(qpitch_fft_test PRIVATE JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+
+    add_executable(qpitch_shifter_test tools/shifter_test.cpp src/dsp/PitchShifter.cpp)
+    target_include_directories(qpitch_shifter_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(qpitch_shifter_test PRIVATE juce::juce_dsp)
+    target_compile_definitions(qpitch_shifter_test PRIVATE
+        JUCE_DISPLAY_SPLASH_SCREEN=0
+        JUCE_REPORT_APP_USAGE=0
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+    )
+endif()

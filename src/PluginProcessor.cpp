@@ -249,6 +249,30 @@ void QPitchAudioProcessor::updatePitchRange()
     pitchDetector.setFrequencyRange(ranges[index].minHz, ranges[index].maxHz);
 }
 
+void QPitchAudioProcessor::ensureProcessingChannels(int numChannels, int numSamples)
+{
+    const auto channels = static_cast<size_t>(numChannels);
+    if (pitchShifters.size() != channels)
+    {
+        pitchShifters.resize(channels);
+        formantPreservers.resize(channels);
+        airLpDry.assign(channels, 0.0f);
+        airLpShift.assign(channels, 0.0f);
+        for (size_t ch = 0; ch < channels; ++ch)
+        {
+            pitchShifters[ch].prepare(currentSampleRate, numSamples);
+            formantPreservers[ch].prepare(currentSampleRate, numSamples, numChannels);
+        }
+    }
+
+    if (dryBuffer.getNumChannels() < numChannels || dryBuffer.getNumSamples() < numSamples)
+    {
+        dryBuffer.setSize(numChannels, numSamples, false, false, true);
+        shiftedBuffer.setSize(numChannels, numSamples, false, false, true);
+        formantBuffer.setSize(numChannels, numSamples, false, false, true);
+    }
+}
+
 int QPitchAudioProcessor::findNearestScaleMidi(float midiNote) const
 {
     int bestMidi = static_cast<int>(std::round(midiNote));
@@ -298,7 +322,7 @@ void QPitchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
     pitchDetector.prepare(sampleRate, samplesPerBlock);
     updatePitchRange();
-    const int channels = std::max(1, getTotalNumInputChannels());
+    const int channels = std::max(1, std::max(getTotalNumInputChannels(), getTotalNumOutputChannels()));
     pitchShifters.resize(static_cast<size_t>(channels));
     formantPreservers.resize(static_cast<size_t>(channels));
     for (int ch = 0; ch < channels; ++ch)
@@ -309,6 +333,10 @@ void QPitchAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     dryBuffer.setSize(channels, samplesPerBlock, false, true, true);
     shiftedBuffer.setSize(channels, samplesPerBlock, false, true, true);
     formantBuffer.setSize(channels, samplesPerBlock, false, true, true);
+    airLpDry.assign(static_cast<size_t>(channels), 0.0f);
+    airLpShift.assign(static_cast<size_t>(channels), 0.0f);
+    airLpCoeff = 1.0f - std::exp(-2.0f * juce::MathConstants<float>::pi * 4800.0f
+                                   / static_cast<float>(sampleRate));
 
     currentSmoothedPitch = 0.0f;
     currentPitchRatio = 1.0f;
@@ -340,45 +368,30 @@ void QPitchAudioProcessor::releaseResources()
         shifter.reset();
     for (auto& preserver : formantPreservers)
         preserver.reset();
+    std::fill(airLpDry.begin(), airLpDry.end(), 0.0f);
+    std::fill(airLpShift.begin(), airLpShift.end(), 0.0f);
 }
 
 void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
 
-    const float prevPitchRatio = currentPitchRatio;
+    const int totalNumInputChannels = getTotalNumInputChannels();
+    const int totalNumOutputChannels = getTotalNumOutputChannels();
+    const int numSamples = buffer.getNumSamples();
+    const int numChannels = juce::jmax(1, totalNumInputChannels > 0 ? totalNumInputChannels : totalNumOutputChannels);
 
-    auto totalNumInputChannels = getTotalNumInputChannels();
-    auto totalNumOutputChannels = getTotalNumOutputChannels();
-    auto numSamples = buffer.getNumSamples();
+    if (numSamples <= 0 || totalNumOutputChannels <= 0)
+        return;
 
-    for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear(i, 0, numSamples);
+    for (int ch = numChannels; ch < totalNumOutputChannels; ++ch)
+        buffer.clear(ch, 0, numSamples);
 
-    float outputGainDb = outputGainParam->get();
+    const float outputGainDb = outputGainParam->get();
 
     const bool correctionActive = !bypass
                                   && correctionOnParam->get()
                                   && correctionAmountParam->get() > 0.0f;
-
-    if (correctionActive && !wasCorrectionActive)
-    {
-        for (auto& shifter : pitchShifters)
-            shifter.reset();
-        for (auto& preserver : formantPreservers)
-            preserver.reset();
-
-        smoothedCorrectionCents = 0.0f;
-        currentPitchRatio = 1.0f;
-        lockedTargetMidi = -1;
-        smoothedTargetMidi = -1.0f;
-        smoothedInputMidi = -1.0f;
-        pitchHoldSamples = 0;
-        pendingTargetMidi = -1;
-        pendingTargetSamples = 0;
-    }
-
-    wasCorrectionActive = correctionActive;
 
     if (!correctionActive)
     {
@@ -397,19 +410,15 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     float formantAmount = formantOn ? 1.0f : 0.0f;
     float humanizeCents = humanizeParam->get();
 
-    if (shiftedBuffer.getNumSamples() < numSamples || shiftedBuffer.getNumChannels() < totalNumInputChannels)
-    {
-        dryBuffer.setSize(totalNumInputChannels, numSamples, false, true, true);
-        shiftedBuffer.setSize(totalNumInputChannels, numSamples, false, true, true);
-        formantBuffer.setSize(totalNumInputChannels, numSamples, false, true, true);
-    }
+    ensureProcessingChannels(numChannels, numSamples);
 
-    dryBuffer.makeCopyOf(buffer, true);
+    for (int ch = 0; ch < numChannels; ++ch)
+        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
     float* channelData = buffer.getWritePointer(0);
     float detectedHz = pitchDetector.detectPitch(channelData, numSamples);
     const float confidence = pitchDetector.getConfidence();
-    const bool pitchValid = detectedHz > 0.0f && confidence > 0.50f;
+    const bool pitchValid = detectedHz > 0.0f && confidence > 0.62f;
     const float speedMsCurrent = retuneSpeedParam != nullptr ? retuneSpeedParam->get() : 15.0f;
     const float transitionMsCurrent = noteTransitionParam != nullptr ? noteTransitionParam->get() : 120.0f;
     const float effectiveSpeedMs = std::max(0.0f, speedMsCurrent * (1.0f - snappiness * 0.85f) - tPain * 8.0f);
@@ -566,66 +575,66 @@ void QPitchAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         }
     }
 
-    constexpr float kUnityRatio = 0.001f;
-    if (std::abs(currentPitchRatio - 1.0f) < kUnityRatio)
+    const float ratio = currentPitchRatio;
+
+  auto processMidChannel = [&](const float* dryMid, float* wetMid)
     {
-        if (totalNumInputChannels == 1 && totalNumOutputChannels > 1)
-            buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+        pitchShifters[0].process(dryMid, wetMid, numSamples, ratio);
 
-        if (outputGainDb != 0.0f)
-            buffer.applyGain(juce::Decibels::decibelsToGain(outputGainDb));
-        return;
-    }
-
-    const float targetWet = 1.0f;
-    currentWetMix = targetWet;
-
-    const int numProcessChannels = std::max(1, totalNumInputChannels);
-
-    if (true)
-    {
-        for (int ch = 0; ch < numProcessChannels; ++ch)
+        constexpr float kAirRestoreMix = 0.22f;
+        float& lpDry = airLpDry[0];
+        float& lpShift = airLpShift[0];
+        for (int i = 0; i < numSamples; ++i)
         {
-            float* chData = buffer.getWritePointer(ch);
-            const float* dry = dryBuffer.getReadPointer(ch);
-            float* shifted = shiftedBuffer.getWritePointer(ch);
-            float* formant = formantBuffer.getWritePointer(ch);
-            constexpr int kSubBlockSize = 64;
-            for (int offset = 0; offset < numSamples; offset += kSubBlockSize)
-            {
-                const int subLen = std::min(kSubBlockSize, numSamples - offset);
-                const float t = numSamples > 1
-                    ? static_cast<float>(offset) / static_cast<float>(numSamples - 1)
-                    : 1.0f;
-                const float subRatio = roboticSnap ? currentPitchRatio
-                                                   : prevPitchRatio + (currentPitchRatio - prevPitchRatio) * t;
-                pitchShifters[static_cast<size_t>(ch)].process(
-                    dry + offset, shifted + offset, subLen, subRatio);
-            }
-
-            if (formantOn && formantAmount > 0.0f)
-            {
-                formantPreservers[static_cast<size_t>(ch)].process(dry, shifted, formant,
-                                                                    numSamples, formantOn, formantAmount);
-                for (int i = 0; i < numSamples; ++i)
-                    chData[i] = currentWetMix >= 0.995f ? formant[i] : dry[i] + (formant[i] - dry[i]) * currentWetMix;
-            }
-            else
-            {
-                for (int i = 0; i < numSamples; ++i)
-                    chData[i] = currentWetMix >= 0.995f ? shifted[i] : dry[i] + (shifted[i] - dry[i]) * currentWetMix;
-            }
+            lpDry += airLpCoeff * (dryMid[i] - lpDry);
+            lpShift += airLpCoeff * (wetMid[i] - lpShift);
+            wetMid[i] += kAirRestoreMix * ((dryMid[i] - lpDry) - (wetMid[i] - lpShift));
         }
 
-        if (totalNumInputChannels == 1 && totalNumOutputChannels > 1)
+        if (formantOn && formantAmount > 0.0f)
+            formantPreservers[0].process(dryMid, wetMid, wetMid, numSamples, formantOn, formantAmount);
+    };
+
+    if (numChannels >= 2)
+    {
+        const float* dryL = dryBuffer.getReadPointer(0);
+        const float* dryR = dryBuffer.getReadPointer(1);
+        float* dryMid = dryBuffer.getWritePointer(0);
+        float* side = formantBuffer.getWritePointer(0);
+        float* wetMid = shiftedBuffer.getWritePointer(0);
+        float* outL = buffer.getWritePointer(0);
+        float* outR = buffer.getWritePointer(1);
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float mid = 0.5f * (dryL[i] + dryR[i]);
+            dryMid[i] = mid;
+            side[i] = 0.5f * (dryL[i] - dryR[i]);
+        }
+
+        processMidChannel(dryMid, wetMid);
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float mid = wetMid[i];
+            const float s = side[i];
+            outL[i] = mid + s;
+            outR[i] = mid - s;
+        }
+    }
+    else
+    {
+        const float* dry = dryBuffer.getReadPointer(0);
+        float* wet = shiftedBuffer.getWritePointer(0);
+        processMidChannel(dry, wet);
+        juce::FloatVectorOperations::copy(buffer.getWritePointer(0), wet, numSamples);
+
+        if (totalNumOutputChannels > 1)
             buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
     }
 
     if (outputGainDb != 0.0f)
-    {
-        float gain = juce::Decibels::decibelsToGain(outputGainDb);
-        buffer.applyGain(gain);
-    }
+        buffer.applyGain(juce::Decibels::decibelsToGain(outputGainDb));
 }
 
 void QPitchAudioProcessor::getStateInformation(juce::MemoryBlock& destData)

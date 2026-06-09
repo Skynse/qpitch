@@ -19,10 +19,8 @@ PitchShifter::PitchShifter(PitchShifter&& other) noexcept
       synthMaxMag(std::move(other.synthMaxMag)),
       rover(other.rover),
       fifoLatency(other.fifoLatency),
-      warmupSamplesRemaining(other.warmupSamplesRemaining),
       sampleRate(other.sampleRate),
-      prepared(other.prepared),
-      lastProcessedRatio(other.lastProcessedRatio)
+      prepared(other.prepared)
 {
     other.prepared = false;
 }
@@ -47,10 +45,8 @@ PitchShifter& PitchShifter::operator=(PitchShifter&& other) noexcept
         synthMaxMag = std::move(other.synthMaxMag);
         rover = other.rover;
         fifoLatency = other.fifoLatency;
-        warmupSamplesRemaining = other.warmupSamplesRemaining;
         sampleRate = other.sampleRate;
         prepared = other.prepared;
-        lastProcessedRatio = other.lastProcessedRatio;
         other.prepared = false;
     }
     return *this;
@@ -82,7 +78,6 @@ void PitchShifter::prepare(double sr, int)
 
     fifoLatency = kFftSize - kStepSize;
     rover = fifoLatency;
-    warmupSamplesRemaining = fifoLatency;
     prepared = true;
 }
 
@@ -95,26 +90,11 @@ void PitchShifter::reset()
     std::fill(sumPhase.begin(), sumPhase.end(), 0.0f);
     std::fill(synthMaxMag.begin(), synthMaxMag.end(), 0.0f);
     rover = fifoLatency;
-    warmupSamplesRemaining = fifoLatency;
-    lastProcessedRatio = 1.0f;
-}
-
-void PitchShifter::resetPhaseAccumulators()
-{
-    std::fill(lastPhase.begin(), lastPhase.end(), 0.0f);
-    std::fill(sumPhase.begin(), sumPhase.end(), 0.0f);
 }
 
 void PitchShifter::process(const float* input, float* output, int numSamples, float pitchRatio)
 {
-    constexpr float kUnityRatio = 0.001f;
-    if (std::abs(pitchRatio - 1.0f) < kUnityRatio)
-    {
-        std::copy(input, input + numSamples, output);
-        return;
-    }
-
-    if (!prepared || fft == nullptr)
+    if (!prepared || fft == nullptr || sampleRate <= 0.0)
     {
         std::copy(input, input + numSamples, output);
         return;
@@ -122,26 +102,10 @@ void PitchShifter::process(const float* input, float* output, int numSamples, fl
 
     const float clampedRatio = std::clamp(pitchRatio, 0.50f, 2.0f);
 
-    constexpr float kUnityThresh = 0.0006f;
-    const bool nearUnity = std::abs(clampedRatio - 1.0f) < kUnityThresh;
-    const bool wasNearUnity = std::abs(lastProcessedRatio - 1.0f) < kUnityThresh;
-    if (nearUnity != wasNearUnity)
-        resetPhaseAccumulators();
-    lastProcessedRatio = clampedRatio;
-
     for (int i = 0; i < numSamples; ++i)
     {
         inputFifo[static_cast<size_t>(rover)] = input[i];
-
-        if (warmupSamplesRemaining > 0)
-        {
-            output[i] = input[i];
-            --warmupSamplesRemaining;
-        }
-        else
-        {
-            output[i] = outputFifo[static_cast<size_t>(rover - fifoLatency)];
-        }
+        output[i] = outputFifo[static_cast<size_t>(rover - fifoLatency)];
 
         if (++rover >= kFftSize)
         {
@@ -152,10 +116,6 @@ void PitchShifter::process(const float* input, float* output, int numSamples, fl
                 inputFifo[static_cast<size_t>(k)] = inputFifo[static_cast<size_t>(k + kStepSize)];
         }
     }
-
-    constexpr float kMakeupGain = 2.2f;
-    for (int i = 0; i < numSamples; ++i)
-        output[i] *= kMakeupGain;
 }
 
 void PitchShifter::processFrame(float pitchRatio)
@@ -202,7 +162,9 @@ void PitchShifter::processFrame(float pitchRatio)
         const int shiftedBin = static_cast<int>(static_cast<float>(k) * pitchRatio + 0.5f);
         if (shiftedBin < bins)
         {
-            const float mag = analysisMagnitudes[static_cast<size_t>(k)];
+            const float t = static_cast<float>(k) / static_cast<float>(bins - 1);
+            const float hfTilt = 1.0f + 0.65f * t * t;
+            const float mag = analysisMagnitudes[static_cast<size_t>(k)] * hfTilt;
             synthesisMagnitudes[static_cast<size_t>(shiftedBin)] += mag;
             if (mag > synthMaxMag[static_cast<size_t>(shiftedBin)])
             {
@@ -232,7 +194,8 @@ void PitchShifter::processFrame(float pitchRatio)
 
     fft->perform(fftInput.data(), fftOutput.data(), true);
 
-    const float scale = 1.0f / (static_cast<float>(kFftSize) * static_cast<float>(kOversampling));
+    // JUCE inverse FFT already applies 1/N scaling; rustfft (reference impl) does not.
+    const float scale = 1.0f / static_cast<float>(kOversampling);
     for (int k = 0; k < kFftSize; ++k)
     {
         outputAccum[static_cast<size_t>(k)] += 2.0f * window[static_cast<size_t>(k)] * fftOutput[static_cast<size_t>(k)].real() * scale;

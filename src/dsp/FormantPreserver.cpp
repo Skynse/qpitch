@@ -5,7 +5,7 @@ FormantPreserver::FormantPreserver() {}
 void FormantPreserver::prepare(double sr, int, int)
 {
     sampleRate = sr;
-    const float cutoffHz = 900.0f;
+    const float cutoffHz = 1200.0f;
     lowCoeff = 1.0f - std::exp(-2.0f * 3.14159265358979323846f * cutoffHz
                                 / static_cast<float>(sampleRate));
     envCoeff = 1.0f - std::exp(-1.0f / std::max(1.0f, 0.012f * static_cast<float>(sampleRate)));
@@ -50,10 +50,11 @@ void FormantPreserver::process(const float* input, const float* pitchShifted, fl
         highInEnv += envCoeff * (std::abs(highIn) - highInEnv);
         highShiftEnv += envCoeff * (std::abs(highShift) - highShiftEnv);
 
-        const float bodyGain = std::clamp(lowInEnv / (lowShiftEnv + 1.0e-4f), 0.55f, 1.80f);
-        const float airGain = std::clamp(highInEnv / (highShiftEnv + 1.0e-4f), 0.55f, 1.80f);
+        const float bodyGain = std::clamp(lowInEnv / (lowShiftEnv + 1.0e-4f), 0.60f, 1.65f);
+        const float airRatio = highInEnv / (highShiftEnv + 1.0e-4f);
+        const float airGain = std::clamp(std::pow(airRatio, 0.50f), 0.85f, 1.40f);
         const float compensated = lowShiftState * (1.0f + amount * (bodyGain - 1.0f))
-                                  + highShift * (1.0f + amount * (airGain - 1.0f));
+                                  + highShift * (1.0f + amount * 0.55f * (airGain - 1.0f));
 
         output[i] = std::clamp(compensated, -2.0f, 2.0f);
     }

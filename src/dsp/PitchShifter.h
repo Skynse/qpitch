@@ -21,7 +21,6 @@ public:
 
 private:
     void processFrame(float pitchRatio);
-    void resetPhaseAccumulators();
 
     static constexpr int kFftOrder = 10;
     static constexpr int kFftSize = 1 << kFftOrder;
@@ -46,8 +45,6 @@ private:
 
     int rover = 0;
     int fifoLatency = kFftSize - kStepSize;
-    int warmupSamplesRemaining = 0;
     double sampleRate = 44100.0;
     bool prepared = false;
-    float lastProcessedRatio = 1.0f;
 };
