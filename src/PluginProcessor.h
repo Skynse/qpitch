@@ -2,13 +2,12 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
-#include <juce_dsp/juce_dsp.h>
-#include <vector>
+#include <array>
+#include <atomic>
 
 #include "dsp/PitchDetector.h"
 #include "dsp/ScaleQuantizer.h"
 #include "dsp/PitchShifter.h"
-#include "dsp/FormantPreserver.h"
 
 class QPitchAudioProcessor final : public juce::AudioProcessor,
                                    public juce::AudioProcessorValueTreeState::Listener
@@ -20,6 +19,7 @@ public:
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -40,9 +40,9 @@ public:
     void setStateInformation(const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState& getValueTreeState() { return vts; }
-    float getDebugDetectedHz() const { return debugDetectedHz.load(); }
-    float getDebugTargetHz() const { return debugTargetHz.load(); }
-    float getDebugCorrectionCents() const { return debugCorrectionCents.load(); }
+    float getDetectedHz() const { return detectedPitchHz.load(); }
+    float getOutputHz() const { return outputPitchHz.load(); }
+    float getTargetHz() const { return targetPitchHz.load(); }
     float getReferenceFrequency() const { return scaleQuantizer.getReferenceFrequency(); }
     bool isCustomNoteEnabled(int noteClass) const;
     void setCustomNoteEnabled(int noteClass, bool enabled);
@@ -53,7 +53,6 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
-    void smoothPitch(float targetHz, int numSamples);
     void updateScaleMask();
     void updatePitchRange();
     void ensureProcessingChannels(int numChannels, int numSamples);
@@ -79,18 +78,13 @@ private:
     juce::AudioParameterFloat* pitchDetectParam = nullptr;
 
     PitchDetector pitchDetector;
+    PitchDetector outputPitchDetector;
     ScaleQuantizer scaleQuantizer;
-    std::vector<PitchShifter> pitchShifters;
-    std::vector<FormantPreserver> formantPreservers;
+    PitchShifter pitchShifter;
     juce::AudioBuffer<float> dryBuffer;
     juce::AudioBuffer<float> shiftedBuffer;
-    juce::AudioBuffer<float> formantBuffer;
-    std::vector<float> airLpDry;
-    std::vector<float> airLpShift;
-    float airLpCoeff = 0.0f;
 
     double currentSampleRate = 44100.0;
-    float currentSmoothedPitch = 0.0f;
     float pitchCoefficient = 0.0f;
     float currentPitchRatio = 1.0f;
     float humanizePhase = 0.0f;
@@ -106,9 +100,11 @@ private:
     int currentScale = 0;
     int currentRange = 6;
     bool bypass = false;
-    std::atomic<float> debugDetectedHz { 0.0f };
-    std::atomic<float> debugTargetHz { 0.0f };
-    std::atomic<float> debugCorrectionCents { 0.0f };
+    juce::AudioBuffer<float> dryDelay;
+    int dryDelayPosition = 0;
+    std::atomic<float> outputPitchHz { 0.0f };
+    std::atomic<float> detectedPitchHz { 0.0f };
+    std::atomic<float> targetPitchHz { 0.0f };
 
     std::array<bool, 12> currentScaleMask;
     std::array<juce::AudioParameterBool*, 12> customNoteParams {};

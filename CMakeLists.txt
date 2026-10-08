@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(QPitch VERSION 1.1.0 LANGUAGES C CXX)
+project(QPitch VERSION 2.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -53,6 +53,19 @@ qpitch_add_or_fetch_dependency(clap_juce_extensions_project
     https://github.com/free-audio/clap-juce-extensions.git
     "${QPITCH_CLAP_JUCE_EXTENSIONS_GIT_TAG}")
 
+# Pinned Rubber Band 4.0.0 source, including its built-in FFT/resampler.
+# Static linkage keeps VST3/CLAP releases self-contained on every platform.
+add_library(qpitch_rubberband STATIC third_party/rubberband/single/RubberBandSingle.cpp)
+target_include_directories(qpitch_rubberband PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/rubberband)
+target_compile_definitions(qpitch_rubberband PRIVATE RUBBERBAND_STATIC)
+set_target_properties(qpitch_rubberband PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+if(APPLE)
+    target_link_libraries(qpitch_rubberband PUBLIC "-framework Accelerate")
+endif()
+if(WIN32)
+    target_compile_definitions(qpitch_rubberband PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 juce_add_plugin(QPitch
     COMPANY_NAME "QPitch"
     PLUGIN_MANUFACTURER_CODE "QPch"
@@ -77,7 +90,6 @@ target_sources(QPitch PRIVATE
     src/dsp/PitchDetector.cpp
     src/dsp/ScaleQuantizer.cpp
     src/dsp/PitchShifter.cpp
-    src/dsp/FormantPreserver.cpp
 )
 
 if(WIN32)
@@ -96,9 +108,9 @@ target_compile_definitions(QPitch PUBLIC
 )
 
 target_link_libraries(QPitch PRIVATE
+    qpitch_rubberband
     juce::juce_audio_utils
     juce::juce_audio_plugin_client
-    juce::juce_dsp
     juce::juce_gui_basics
     clap_juce_extensions
 )
@@ -107,30 +119,40 @@ target_include_directories(QPitch PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    add_executable(qpitch_ifft_recon tools/ifft_recon_test.cpp)
-    target_link_libraries(qpitch_ifft_recon PRIVATE juce::juce_dsp)
-    target_compile_definitions(qpitch_ifft_recon PRIVATE JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
-
-    add_executable(qpitch_vocoder_roundtrip tools/vocoder_roundtrip_test.cpp)
-    target_link_libraries(qpitch_vocoder_roundtrip PRIVATE juce::juce_dsp)
-    target_compile_definitions(qpitch_vocoder_roundtrip PRIVATE JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
-
-    add_executable(qpitch_forward_debug tools/forward_debug_test.cpp)
-    target_link_libraries(qpitch_forward_debug PRIVATE juce::juce_dsp)
-    target_compile_definitions(qpitch_forward_debug PRIVATE JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
-
-    add_executable(qpitch_fft_test tools/fft_scaling_test.cpp)
-    target_link_libraries(qpitch_fft_test PRIVATE juce::juce_dsp)
-    target_compile_definitions(qpitch_fft_test PRIVATE JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
-
-    add_executable(qpitch_shifter_test tools/shifter_test.cpp src/dsp/PitchShifter.cpp)
-    target_include_directories(qpitch_shifter_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(qpitch_shifter_test PRIVATE juce::juce_dsp)
-    target_compile_definitions(qpitch_shifter_test PRIVATE
+option(QPITCH_BUILD_TOOLS "Build the offline listening comparison tool" OFF)
+if(QPITCH_BUILD_TOOLS AND CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    add_executable(qpitch_ab_listen tools/ab_listen_test.cpp src/dsp/PitchShifter.cpp)
+    target_include_directories(qpitch_ab_listen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(qpitch_ab_listen PRIVATE juce::juce_audio_formats qpitch_rubberband)
+    target_compile_definitions(qpitch_ab_listen PRIVATE
         JUCE_DISPLAY_SPLASH_SCREEN=0
         JUCE_REPORT_APP_USAGE=0
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
     )
+endif()
+
+include(CTest)
+if(BUILD_TESTING AND CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    add_executable(qpitch_shifter_test tools/shifter_test.cpp src/dsp/PitchShifter.cpp)
+    target_include_directories(qpitch_shifter_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(qpitch_shifter_test PRIVATE qpitch_rubberband)
+    add_test(NAME pitch_shifter COMMAND qpitch_shifter_test)
+    add_executable(qpitch_detector_test tools/detector_test.cpp src/dsp/PitchDetector.cpp)
+    target_include_directories(qpitch_detector_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME pitch_detector COMMAND qpitch_detector_test)
+    add_executable(qpitch_editor_test tools/editor_test.cpp)
+    target_include_directories(qpitch_editor_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    # Reuse the plugin's compiled JUCE modules rather than compiling them twice.
+    target_include_directories(qpitch_editor_test PRIVATE $<TARGET_PROPERTY:QPitch,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(qpitch_editor_test PRIVATE $<TARGET_PROPERTY:QPitch,COMPILE_DEFINITIONS>)
+    target_link_libraries(qpitch_editor_test PRIVATE QPitch)
+    # GUI integration/render checks are run explicitly with a display available.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(qpitch_clap_load_test tools/clap_load_test.cpp)
+        target_include_directories(qpitch_clap_load_test PRIVATE $<TARGET_PROPERTY:clap_juce_extensions,INTERFACE_INCLUDE_DIRECTORIES>)
+        target_link_libraries(qpitch_clap_load_test PRIVATE ${CMAKE_DL_LIBS})
+        add_test(NAME clap_load COMMAND qpitch_clap_load_test $<TARGET_FILE:QPitch_CLAP>)
+    endif()
+
 endif()

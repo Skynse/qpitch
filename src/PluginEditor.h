@@ -15,7 +15,7 @@ public:
 
     void resized() override;
     void paint(juce::Graphics&) override;
-    void timerCallback();
+    void timerCallback() override;
 
 private:
     class RotarySliderWithLabel;
@@ -46,10 +46,10 @@ private:
     std::unique_ptr<ScaleKeyboard> scaleKeyboard;
     std::unique_ptr<QPitchLookAndFeel> lf;
 
-    juce::Rectangle<int> timingPanelBounds;
-    juce::Rectangle<int> correctionPanelBounds;
-    juce::Rectangle<int> comboRowBounds;
-    juce::Rectangle<int> rangeRowBounds;
+    std::unique_ptr<juce::TextButton> advancedButton;
+    std::unique_ptr<juce::TooltipWindow> tooltipWindow;
+    bool advancedOpen = false;
+    void updateSize();
 
     using SliderAttach = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboAttach = juce::AudioProcessorValueTreeState::ComboBoxAttachment;

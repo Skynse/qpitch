@@ -1,10 +1,10 @@
 # QPitch
 
-QPitch is a JUCE pitch-correction audio plugin with VST3 and CLAP builds.
+QPitch 2.0 is a JUCE pitch-correction audio plugin with VST3 and CLAP builds.
 
 No bullshit, just a quick, easy to use auto-tuning plugin with formant preservation.
 
-Detects the main frequency -> maps to midi -> pitch shifts -> corrects formants.
+Detects vocal pitch, maps it to the selected notes, and corrects it with stereo-linked Rubber Band processing.
 
 ![QPitch plugin UI](docs/qpitch-ui.png)
 
@@ -23,6 +23,19 @@ sudo apt install build-essential cmake git pkg-config libx11-dev libxext-dev lib
 ```
 
 ## Build
+
+On Linux, use the Debian 12 build container to keep compatibility with DAW
+sandboxes such as Bitwig. Building directly on a newer distro can introduce
+unsupported glibc requirements. With Podman or Docker installed:
+
+```sh
+tools/linux/build.sh
+# Outputs: build-linux-v2/QPitch_artefacts/Release/{VST3,CLAP}
+```
+
+The container builds and tests both formats, checks the glibc 2.36 baseline,
+and renders the UI under Xvfb. Linux CI/releases use this same build path.
+The commands below are for macOS/Windows or native development builds.
 
 Clone with submodules so JUCE is available locally:
 
@@ -73,15 +86,42 @@ cmake --build build --target QPitch_CLAP -j
 
 ## Notes
 
-QPitch dynamically loads Rubber Band at runtime on Linux/macOS. This keeps builds simple and lets the plugin run without bundling Rubber Band, but the best sound quality expects the runtime library to be installed on the user machine.
+Rubber Band Library 4.0.0 is vendored in `third_party/rubberband` and statically
+linked into both plugin formats on Linux, macOS, and Windows. No separate
+`librubberband` installation is needed. Its live pitch shifter provides native
+formant preservation. The plugin reports its processing latency to the host;
+correction off and host bypass use a matching delayed dry path.
+
+The piano edits pitch classes across all octaves. Click a key to allow/exclude
+it; use arrow keys and Space when the piano has keyboard focus. Reset notes
+restores the selected key/scale. Detailed tuning switches the lower pane from the piano to snappiness, T-Pain,
+and tolerance controls; Show piano returns to the keyboard. The default window
+is 880 × 660 and switching panes keeps its size unchanged. Click numeric values to type; double-click sliders to
+restore defaults. All existing parameter IDs remain compatible with saved sessions.
+
+Rubber Band introduces processing delay (roughly 50 ms or more depending on
+sample rate). Host delay compensation aligns playback; it does not remove
+live monitoring delay. See `THIRD_PARTY_NOTICES.md` for bundled licences.
+
+Validation:
+
+```sh
+cmake --build build --target QPitch_CLAP qpitch_shifter_test qpitch_detector_test qpitch_editor_test -j2
+ctest --test-dir build --output-on-failure
+# Requires a working display on Linux; writes UI screenshots.
+build/qpitch_editor_test /tmp/qpitch-ui-check
+```
+
+For a plugin-only build, configure with `-DBUILD_TESTING=OFF`. The optional
+offline listening comparison tool is enabled with `-DQPITCH_BUILD_TOOLS=ON`.
 
 ## Release
 
 GitHub Releases are created by the `release` workflow. Push a version tag:
 
 ```sh
-git tag v1.2.0
-git push origin v1.2.0
+git tag v2.0.0
+git push origin v2.0.0
 ```
 
 The workflow builds Linux, macOS, and Windows VST3/CLAP packages and uploads:
@@ -93,4 +133,6 @@ The workflow builds Linux, macOS, and Windows VST3/CLAP packages and uploads:
 - `QPitch-<version>-windows-vst3.zip`
 - `QPitch-<version>-windows-clap.zip`
 
-You can also run the release workflow manually from GitHub Actions and provide a version like `v1.2.0`.
+You can also run the release workflow manually from GitHub Actions and provide a version like `v2.0.0`.
+
+The live pitch piano shows cyan input and lime measured output dots, with an outlined target marker. The markers sit directly on the existing white and black note-selection keys; positions include fractional semitones, with the octave shown in the input/output readouts. Output pitch is detected from the processed audio rather than inferred from the correction setting.
