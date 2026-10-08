@@ -533,7 +533,6 @@ void QPitchAudioProcessorEditor::paint(juce::Graphics &g) {
   g.fillAll(background);
   g.addTransform(juce::AffineTransform::scale(getWidth() / (float)designWidth));
   caption(g, "QPitch", 28, 9, 200, 34, 26, text, true);
-  caption(g, "VOCAL PITCH CORRECTION  /  2.0", 29, 43, 360, 14, 10);
   g.setColour(line);
   g.fillRect(0, 64, 880, 1);
   caption(g, "KEY", 28, 74, 112, 18, 11);

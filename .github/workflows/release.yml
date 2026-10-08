@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, for example v1.1.0"
+        description: "Release version, for example v2.0.0"
         required: true
         type: string
 
@@ -26,46 +26,33 @@ jobs:
             platform: linux
             os: ubuntu-latest
             configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-            build: cmake --build build --target QPitch_VST3 QPitch_CLAP --parallel 2
+            build: QPITCH_CONTAINER_ENGINE=docker tools/linux/build.sh "$PWD/build"
           - name: macOS
             platform: macos-universal
             os: macos-latest
             configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
-            build: cmake --build build --target QPitch_VST3 QPitch_CLAP --parallel 2
+            build: cmake --build build --target QPitch_VST3 QPitch_CLAP qpitch_shifter_test qpitch_detector_test --parallel 2
           - name: Windows
             platform: windows
             os: windows-latest
             configure: cmake -S . -B build
-            build: cmake --build build --config Release --target QPitch_VST3 QPitch_CLAP --parallel 2
+            build: cmake --build build --config Release --target QPitch_VST3 QPitch_CLAP qpitch_shifter_test qpitch_detector_test --parallel 2
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            pkg-config \
-            zip \
-            libx11-dev \
-            libxext-dev \
-            libxinerama-dev \
-            libxrandr-dev \
-            libxcursor-dev \
-            libfreetype-dev \
-            libfontconfig1-dev
-
       - name: Configure
+        if: runner.os != 'Linux'
         run: ${{ matrix.configure }}
 
       - name: Build
         run: ${{ matrix.build }}
+
+      - name: Test pitch shifting
+        if: runner.os != 'Linux'
+        run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Package Linux/macOS
         if: runner.os != 'Windows'
@@ -79,14 +66,18 @@ jobs:
             version="${{ inputs.version }}"
           fi
 
-          mkdir -p dist package
+          mkdir -p dist package/licenses
+          cp LICENSE THIRD_PARTY_NOTICES.md package/licenses/
+          cp third_party/rubberband/COPYING package/licenses/RubberBand-COPYING
+          cp third_party/rubberband/COMPILING.md package/licenses/RubberBand-COMPILING.md
+          cp -R third_party/rubberband/src/ext package/licenses/RubberBand-ext
           cp -R build/QPitch_artefacts/Release/VST3/QPitch.vst3 package/
           cp -R build/QPitch_artefacts/Release/CLAP/QPitch.clap package/
 
           (
             cd package
-            zip -r "../dist/QPitch-${version}-${{ matrix.platform }}-vst3.zip" QPitch.vst3
-            zip -r "../dist/QPitch-${version}-${{ matrix.platform }}-clap.zip" QPitch.clap
+            zip -r "../dist/QPitch-${version}-${{ matrix.platform }}-vst3.zip" QPitch.vst3 licenses
+            zip -r "../dist/QPitch-${version}-${{ matrix.platform }}-clap.zip" QPitch.clap licenses
           )
 
       - name: Package Windows
@@ -101,10 +92,15 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           New-Item -ItemType Directory -Force -Path package | Out-Null
+          New-Item -ItemType Directory -Force -Path package/licenses | Out-Null
+          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md package/licenses/
+          Copy-Item third_party/rubberband/COPYING package/licenses/RubberBand-COPYING
+          Copy-Item third_party/rubberband/COMPILING.md package/licenses/RubberBand-COMPILING.md
+          Copy-Item -Recurse third_party/rubberband/src/ext package/licenses/RubberBand-ext
           Copy-Item -Recurse -Force build/QPitch_artefacts/Release/VST3/QPitch.vst3 package/
           Copy-Item -Recurse -Force build/QPitch_artefacts/Release/CLAP/QPitch.clap package/
-          Compress-Archive -Path package/QPitch.vst3 -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-vst3.zip" -Force
-          Compress-Archive -Path package/QPitch.clap -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-clap.zip" -Force
+          Compress-Archive -Path package/QPitch.vst3, package/licenses -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-vst3.zip" -Force
+          Compress-Archive -Path package/QPitch.clap, package/licenses -DestinationPath "dist/QPitch-$version-${{ matrix.platform }}-clap.zip" -Force
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
