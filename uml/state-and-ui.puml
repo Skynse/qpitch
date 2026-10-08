@@ -1,0 +1,46 @@
+@startuml
+!include style.puml
+title QPitch 2.0 — parameters, session state and live piano
+actor User
+participant "DAW / format wrapper" as Host
+participant "QPitchAudioProcessorEditor" as Editor
+participant "JUCE attachments" as Attach
+participant "AudioProcessorValueTreeState" as State
+participant "QPitchAudioProcessor" as Processor
+== Controls and automation ==
+User -> Editor : Move control
+Editor -> Attach : Change widget value
+Attach -> State : Update parameter and notify host
+State -> Host : Parameter gesture / value
+Host -> State : Host automation (via wrapper)
+State -> Processor : parameterChanged() for registered listeners
+State -> Attach : Parameter value changed
+Attach -> Editor : Refresh widget
+User -> Editor : Toggle piano note
+Editor -> Processor : setCustomNoteEnabled(noteClass, enabled)
+Processor -> State : beginChangeGesture()\nsetValueNotifyingHost()\nendChangeGesture()
+== Save session ==
+Host -> Processor : getStateInformation()
+Processor -> State : copyState()
+State --> Processor : ValueTree snapshot
+Processor --> Host : XML serialized into binary
+== Restore session ==
+Host -> Processor : setStateInformation(binary)
+Processor -> Processor : Validate XML and ValueTree type\nSet isRestoringState = true
+Processor -> State : replaceState()
+State -> Processor : Parameter listener callbacks
+Processor -> Processor : Refresh key / scale / range and scale mask
+opt Legacy state without note parameters
+  Processor -> State : Restore customNoteMask bits\nor selected scale defaults
+end
+Processor -> Processor : Set isRestoringState = false
+note right of Processor
+  The restore flag prevents key / scale callbacks
+  from overwriting saved custom note choices.
+end note
+== Live piano readouts ==
+Processor -> Processor : Audio callback stores atomic\ninput / target / measured output Hz
+Editor -> Processor : timerCallback() reads pitch values
+Processor --> Editor : Atomic float readouts
+Editor -> Editor : Repaint readouts and piano markers
+@enduml

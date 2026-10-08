@@ -1,0 +1,18 @@
+' Shared style; this file is included by the diagrams.
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam ArrowColor #46565D
+skinparam packageBackgroundColor #F4F7F8
+skinparam packageBorderColor #89989F
+skinparam componentBackgroundColor #E8F4F4
+skinparam componentBorderColor #477678
+skinparam classBackgroundColor #E8F4F4
+skinparam classBorderColor #477678
+skinparam activityBackgroundColor #E8F4F4
+skinparam activityBorderColor #477678
+skinparam participantBackgroundColor #E8F4F4
+skinparam participantBorderColor #477678
+skinparam noteBackgroundColor #F3F9DB
+skinparam noteBorderColor #80934B

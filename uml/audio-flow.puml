@@ -1,0 +1,40 @@
+@startuml
+!include style.puml
+title QPitch 2.0 — audio and pitch-control paths
+start
+:Host calls processBlock();
+if (Empty block or no outputs?) then (yes)
+  stop
+endif
+:Read parameters and allowed-note mask;
+:Copy input channels to dryBuffer;
+fork
+  :Detect pitch from input channel 0\n(YIN and confidence);
+  :Convert Hz to MIDI; choose allowed target\nwith note locking and transition smoothing;
+  :Apply tolerance, correction amount, retune speed,\nsnappiness, T-Pain and humanize;
+  :Calculate pitch ratio\n(or hold / relax after loss of pitch);
+fork again
+  :Retain original input for delayed dry path;
+end fork
+:Feed all input channels to one PitchShifter\nwith ratio = 1 when correction is inactive;
+:Adapt host blocks to fixed Rubber Band blocks;
+:Shift channels together\nwith selected native formant mode;
+:Crossfade shifted audio and latency-matched dry\n(5 ms fade; wet target = 1 or 0);
+note right
+  Correction inactive: host bypass, correction off,
+  zero correction amount, or no allowed notes.
+  The engine keeps running in either mode.
+end note
+:Duplicate mono output for mono-to-stereo layout;
+:Detect measured output pitch from channel 0;
+:Publish input, target and output pitch readouts;
+:Apply output gain;
+:Return audio to host;
+stop
+legend bottom
+  This is the order within one host audio callback.
+  The fork separates logical control and audio paths;
+  it does not imply worker threads.
+  prepareToPlay() reports adapter + engine latency to the host.
+endlegend
+@enduml

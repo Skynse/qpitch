@@ -1,0 +1,34 @@
+@startuml
+!include style.puml
+left to right direction
+title QPitch 2.0 — plugin architecture
+actor "DAW / host" as host
+package "Plugin format" {
+  component "JUCE VST3 wrapper" as vst
+  component "clap-juce-extensions\nCLAP wrapper" as clap
+}
+package "QPitch" {
+  component "QPitchAudioProcessor\nAudio lifecycle and correction" as processor
+  component "QPitchAudioProcessorEditor\nControls and live piano" as editor
+  component "AudioProcessorValueTreeState\nParameters and saved state" as state
+  component "PitchDetector\nInput and measured output" as detector
+  component "ScaleQuantizer\nHz / MIDI and scale masks" as quantizer
+  component "PitchShifter\nHost-block adapter" as shifter
+  component "RubberBandLiveShifter\nLinked channels and formants" as rubberband
+}
+host --> vst : audio, automation, state
+host --> clap : audio, automation, state
+vst --> processor
+clap --> processor
+processor --> state : reads parameters / serializes
+editor <--> state : JUCE attachments
+editor --> processor : note edits and atomic pitch readouts
+processor --> detector : detect input / output pitch
+processor --> quantizer : conversions and scale definitions
+processor --> shifter : channel buffers and pitch ratio
+shifter --> rubberband : fixed-size live blocks
+note bottom of rubberband
+  Rubber Band 4.0.0 is statically linked.
+  One engine processes all input channels together.
+end note
+@enduml

@@ -1,0 +1,68 @@
+@startuml
+!include style.puml
+title QPitch 2.0 — principal classes
+hide empty members
+class "juce::AudioProcessor" as AudioProcessor
+interface "juce::AudioProcessorValueTreeState::Listener" as Listener
+class "juce::AudioProcessorEditor" as AudioProcessorEditor
+class "juce::Timer" as Timer
+class QPitchAudioProcessor {
+  +prepareToPlay(sampleRate, samplesPerBlock)
+  +processBlock(buffer, midi)
+  +processBlockBypassed(buffer, midi)
+  +getStateInformation(data)
+  +setStateInformation(data, size)
+  +parameterChanged(id, value)
+  +setCustomNoteEnabled(noteClass, enabled)
+  +resetCustomNotesToScale()
+  +getDetectedHz() : float
+  +getOutputHz() : float
+  +getTargetHz() : float
+}
+class QPitchAudioProcessorEditor {
+  +resized()
+  +paint(graphics)
+  +timerCallback()
+}
+class "juce::AudioProcessorValueTreeState" as State
+class PitchDetector {
+  +prepare(sampleRate, maxBlockSize)
+  +setFrequencyRange(minHz, maxHz)
+  +detectPitch(buffer, samples) : float
+  +getConfidence() : float
+}
+class ScaleQuantizer {
+  +hzToMidi(hz) : float
+  +midiToHz(note) : float
+  +setReferenceFrequency(hz)
+  {static} +getScaleMasks()
+}
+class PitchShifter {
+  +prepare(sampleRate, maxBlockSize, channels)
+  +process(inputs, outputs, samples, ratio, formants)
+  +getLatencySamples() : int
+  +reset()
+}
+class "RubberBand::RubberBandLiveShifter" as RubberBand
+class "ScaleKeyboard\n(editor nested component)" as Piano
+class "JUCE parameter attachments" as Attachments
+AudioProcessor <|-- QPitchAudioProcessor
+Listener <|.. QPitchAudioProcessor
+AudioProcessorEditor <|-- QPitchAudioProcessorEditor
+Timer <|-- QPitchAudioProcessorEditor
+QPitchAudioProcessor *-- "1" State : vts
+QPitchAudioProcessor *-- "2" PitchDetector : input / output
+QPitchAudioProcessor *-- "1" ScaleQuantizer
+QPitchAudioProcessor *-- "1" PitchShifter
+PitchShifter *-- "1" RubberBand : unique_ptr
+QPitchAudioProcessorEditor --> QPitchAudioProcessor : reference
+QPitchAudioProcessorEditor *-- Piano
+QPitchAudioProcessorEditor *-- Attachments
+Attachments --> State
+Piano --> QPitchAudioProcessor : note edits / pitch markers
+note bottom of QPitchAudioProcessor
+  Owns dry, shifted and delayed-dry buffers.
+  Publishes pitch readouts through atomic floats.
+  Target selection and smoothing live in this class.
+end note
+@enduml
