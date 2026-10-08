@@ -3,7 +3,7 @@ name: release
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v*.*"
   workflow_dispatch:
     inputs:
       version:
@@ -17,6 +17,7 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.name }}
+    timeout-minutes: 30
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -107,9 +108,11 @@ jobs:
         with:
           name: qpitch-${{ matrix.platform }}
           path: dist/*.zip
+          if-no-files-found: error
 
   publish:
     name: Publish GitHub Release
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     needs: build
     steps:
@@ -123,6 +126,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+          target_commitish: ${{ github.sha }}
           name: QPitch ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
           files: dist/*.zip
           generate_release_notes: true
