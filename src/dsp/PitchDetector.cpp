@@ -13,14 +13,19 @@ void PitchDetector::setFrequencyRange(float minHz, float maxHz)
 {
     maxHz = std::max(maxHz, minHz + 10.0f);
     minPeriod = static_cast<int>(sampleRate / maxHz);
-    if (minPeriod < 4) minPeriod = 4;
+    if (minPeriod < 4)
+        minPeriod = 4;
     maxPeriod = static_cast<int>(sampleRate / minHz);
-    if (maxPeriod > sampleRate / 2) maxPeriod = static_cast<int>(sampleRate / 2);
-    int neededSize = maxBlockSize + maxPeriod + 4;
+    if (maxPeriod > sampleRate / 2)
+        maxPeriod = static_cast<int>(sampleRate / 2);
+    int neededSize = 2 * maxPeriod + 4;
     workBuffer.resize(neededSize, 0.0f);
     diffBuffer.resize(maxPeriod + 1, 0.0f);
     normDiffBuffer.resize(maxPeriod + 1, 1.0f);
     historyFill = 0;
+    samplesSinceAnalysis = 0;
+    lastPitch = 0.0f;
+    confidence = 0.0f;
 }
 
 void PitchDetector::reset()
@@ -29,6 +34,8 @@ void PitchDetector::reset()
     std::fill(diffBuffer.begin(), diffBuffer.end(), 0.0f);
     std::fill(normDiffBuffer.begin(), normDiffBuffer.end(), 1.0f);
     historyFill = 0;
+    samplesSinceAnalysis = 0;
+    lastPitch = 0.0f;
     confidence = 0.0f;
 }
 
@@ -55,17 +62,23 @@ float PitchDetector::detectPitch(const float* buffer, int numSamples)
     if (historyFill < minPeriod * 2)
         return 0.0f;
 
+    samplesSinceAnalysis += numSamples;
+    if (samplesSinceAnalysis < 128)
+        return lastPitch;
+    samplesSinceAnalysis %= 128;
     const float* analysis = workBuffer.data() + historySize - historyFill;
-    int tau = yinPeriod(analysis, historyFill);
+    float tau = yinPeriod(analysis, historyFill);
     if (tau < minPeriod)
     {
         confidence = 0.0f;
+        lastPitch = 0.0f;
         return 0.0f;
     }
-    return static_cast<float>(sampleRate / tau);
+    lastPitch = static_cast<float>(sampleRate / tau);
+    return lastPitch;
 }
 
-int PitchDetector::yinPeriod(const float* buffer, int numSamples)
+float PitchDetector::yinPeriod(const float* buffer, int numSamples)
 {
     int maxTau = std::min(maxPeriod, numSamples / 2);
     if (maxTau <= minPeriod * 2)
@@ -99,7 +112,6 @@ int PitchDetector::yinPeriod(const float* buffer, int numSamples)
 
     int bestTau = -1;
     float bestVal = 1.0f;
-    bool foundBelowThreshold = false;
 
     for (int tau = minPeriod; tau <= maxTau; ++tau)
     {
@@ -109,14 +121,14 @@ int PitchDetector::yinPeriod(const float* buffer, int numSamples)
             bestTau = tau;
         }
 
-        if (!foundBelowThreshold && normDiffBuffer[tau] < threshold)
+        if (normDiffBuffer[tau] < threshold)
         {
-            if (tau + 1 <= maxTau && normDiffBuffer[tau + 1] > normDiffBuffer[tau]
-                && tau - 1 >= minPeriod && normDiffBuffer[tau - 1] > normDiffBuffer[tau])
+            if (tau + 1 <= maxTau && normDiffBuffer[tau + 1] > normDiffBuffer[tau] && tau - 1 >= minPeriod &&
+                normDiffBuffer[tau - 1] > normDiffBuffer[tau])
             {
                 bestTau = tau;
                 bestVal = normDiffBuffer[tau];
-                foundBelowThreshold = true;
+                break; // Choose the first good YIN valley, not a later subharmonic.
             }
         }
     }
@@ -148,7 +160,7 @@ int PitchDetector::yinPeriod(const float* buffer, int numSamples)
     if (bestTau > 0 && bestTau < maxTau)
         offset = parabolicInterpolation(normDiffBuffer.data(), bestTau, maxTau + 1);
 
-    return bestTau + static_cast<int>(std::round(offset));
+    return static_cast<float>(bestTau) + offset;
 }
 
 float PitchDetector::parabolicInterpolation(const float* diff, int tau, int len) const
@@ -160,7 +172,7 @@ float PitchDetector::parabolicInterpolation(const float* diff, int tau, int len)
     float b = diff[tau];
     float c = diff[tau + 1];
 
-    float denom = 2.0f * (2.0f * b - a - c);
+    float denom = 2.0f * (a + c - 2.0f * b);
     if (std::abs(denom) < 1e-12f)
         return 0.0f;
 

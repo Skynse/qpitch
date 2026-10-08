@@ -1,209 +1,81 @@
 #include "PitchShifter.h"
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <rubberband/RubberBandLiveShifter.h>
 
 PitchShifter::PitchShifter() = default;
+PitchShifter::~PitchShifter() = default;
+PitchShifter::PitchShifter(PitchShifter &&) noexcept = default;
+PitchShifter &PitchShifter::operator=(PitchShifter &&) noexcept = default;
 
-PitchShifter::PitchShifter(PitchShifter&& other) noexcept
-    : fft(std::move(other.fft)),
-      fftInput(std::move(other.fftInput)),
-      fftOutput(std::move(other.fftOutput)),
-      inputFifo(std::move(other.inputFifo)),
-      outputFifo(std::move(other.outputFifo)),
-      outputAccum(std::move(other.outputAccum)),
-      window(std::move(other.window)),
-      lastPhase(std::move(other.lastPhase)),
-      sumPhase(std::move(other.sumPhase)),
-      analysisMagnitudes(std::move(other.analysisMagnitudes)),
-      analysisFrequencies(std::move(other.analysisFrequencies)),
-      synthesisMagnitudes(std::move(other.synthesisMagnitudes)),
-      synthesisFrequencies(std::move(other.synthesisFrequencies)),
-      synthMaxMag(std::move(other.synthMaxMag)),
-      rover(other.rover),
-      fifoLatency(other.fifoLatency),
-      sampleRate(other.sampleRate),
-      prepared(other.prepared)
+void PitchShifter::prepare(double sampleRate, int, int numChannels)
 {
-    other.prepared = false;
-}
-
-PitchShifter& PitchShifter::operator=(PitchShifter&& other) noexcept
-{
-    if (this != &other)
+    using Live = RubberBand::RubberBandLiveShifter;
+    numChannels = std::max(1, numChannels);
+    engine = std::make_unique<Live>(static_cast<size_t>(sampleRate), static_cast<size_t>(numChannels),
+                                    Live::OptionWindowShort | Live::OptionChannelsTogether);
+    const auto blockSize = engine->getBlockSize();
+    inputBlocks.assign(numChannels, std::vector<float>(blockSize, 0.0f));
+    outputBlocks.assign(numChannels, std::vector<float>(blockSize, 0.0f));
+    inputPointers.resize(numChannels);
+    outputPointers.resize(numChannels);
+    for (int ch = 0; ch < numChannels; ++ch)
     {
-        fft = std::move(other.fft);
-        fftInput = std::move(other.fftInput);
-        fftOutput = std::move(other.fftOutput);
-        inputFifo = std::move(other.inputFifo);
-        outputFifo = std::move(other.outputFifo);
-        outputAccum = std::move(other.outputAccum);
-        window = std::move(other.window);
-        lastPhase = std::move(other.lastPhase);
-        sumPhase = std::move(other.sumPhase);
-        analysisMagnitudes = std::move(other.analysisMagnitudes);
-        analysisFrequencies = std::move(other.analysisFrequencies);
-        synthesisMagnitudes = std::move(other.synthesisMagnitudes);
-        synthesisFrequencies = std::move(other.synthesisFrequencies);
-        synthMaxMag = std::move(other.synthMaxMag);
-        rover = other.rover;
-        fifoLatency = other.fifoLatency;
-        sampleRate = other.sampleRate;
-        prepared = other.prepared;
-        other.prepared = false;
+        inputPointers[ch] = inputBlocks[ch].data();
+        outputPointers[ch] = outputBlocks[ch].data();
     }
-    return *this;
-}
-
-void PitchShifter::prepare(double sr, int)
-{
-    sampleRate = sr;
-    fft = std::make_unique<juce::dsp::FFT>(kFftOrder);
-
-    fftInput.assign(kFftSize, {});
-    fftOutput.assign(kFftSize, {});
-    inputFifo.assign(kFftSize, 0.0f);
-    outputFifo.assign(kStepSize, 0.0f);
-    outputAccum.assign(kFftSize * 2, 0.0f);
-    window.resize(kFftSize);
-
-    const int bins = kFftSize / 2 + 1;
-    lastPhase.assign(bins, 0.0f);
-    sumPhase.assign(bins, 0.0f);
-    analysisMagnitudes.assign(bins, 0.0f);
-    analysisFrequencies.assign(bins, 0.0f);
-    synthesisMagnitudes.assign(bins, 0.0f);
-    synthesisFrequencies.assign(bins, 0.0f);
-    synthMaxMag.assign(bins, 0.0f);
-
-    for (int i = 0; i < kFftSize; ++i)
-        window[static_cast<size_t>(i)] = 0.5f - 0.5f * std::cos(2.0f * kPi * static_cast<float>(i) / static_cast<float>(kFftSize));
-
-    fifoLatency = kFftSize - kStepSize;
-    rover = fifoLatency;
-    prepared = true;
+    // One adapter block plus the live engine's initial delay.
+    latencySamples = static_cast<int>(blockSize + engine->getStartDelay());
+    position = 0;
 }
 
 void PitchShifter::reset()
 {
-    std::fill(inputFifo.begin(), inputFifo.end(), 0.0f);
-    std::fill(outputFifo.begin(), outputFifo.end(), 0.0f);
-    std::fill(outputAccum.begin(), outputAccum.end(), 0.0f);
-    std::fill(lastPhase.begin(), lastPhase.end(), 0.0f);
-    std::fill(sumPhase.begin(), sumPhase.end(), 0.0f);
-    std::fill(synthMaxMag.begin(), synthMaxMag.end(), 0.0f);
-    rover = fifoLatency;
+    if (engine)
+    {
+        engine->reset();
+        engine->setPitchScale(1.0);
+    }
+    for (auto &block : inputBlocks)
+        std::fill(block.begin(), block.end(), 0.0f);
+    for (auto &block : outputBlocks)
+        std::fill(block.begin(), block.end(), 0.0f);
+    position = 0;
 }
 
-void PitchShifter::process(const float* input, float* output, int numSamples, float pitchRatio)
+void PitchShifter::process(const float *input, float *output, int n, float ratio, bool preserveFormants)
 {
-    if (!prepared || fft == nullptr || sampleRate <= 0.0)
+    assert(getNumChannels() <= 1);
+    const float *inputs[] = {input};
+    float *outputs[] = {output};
+    process(inputs, outputs, n, ratio, preserveFormants);
+}
+
+void PitchShifter::process(const float *const *input, float *const *output, int n, float ratio,
+                           bool preserveFormants)
+{
+    if (!engine)
     {
-        std::copy(input, input + numSamples, output);
+        std::copy(input[0], input[0] + n, output[0]);
         return;
     }
-
-    const float clampedRatio = std::clamp(pitchRatio, 0.50f, 2.0f);
-
-    for (int i = 0; i < numSamples; ++i)
+    const double scale = std::isfinite(ratio) ? std::clamp(ratio, .5f, 2.f) : 1.f;
+    using Live = RubberBand::RubberBandLiveShifter;
+    engine->setFormantOption(preserveFormants ? Live::OptionFormantPreserved : Live::OptionFormantShifted);
+    for (int i = 0; i < n; ++i)
     {
-        inputFifo[static_cast<size_t>(rover)] = input[i];
-        output[i] = outputFifo[static_cast<size_t>(rover - fifoLatency)];
-
-        if (++rover >= kFftSize)
+        // All channels share one analysis clock and Rubber Band's linked phase decisions.
+        for (int ch = 0; ch < getNumChannels(); ++ch)
         {
-            rover = fifoLatency;
-            processFrame(clampedRatio);
-
-            for (int k = 0; k < fifoLatency; ++k)
-                inputFifo[static_cast<size_t>(k)] = inputFifo[static_cast<size_t>(k + kStepSize)];
+            inputBlocks[ch][position] = input[ch][i];
+            output[ch][i] = outputBlocks[ch][position];
+        }
+        if (++position == static_cast<int>(inputBlocks.front().size()))
+        {
+            engine->setPitchScale(scale);
+            engine->shift(inputPointers.data(), outputPointers.data());
+            position = 0;
         }
     }
-}
-
-void PitchShifter::processFrame(float pitchRatio)
-{
-    const float freqPerBin = static_cast<float>(sampleRate) / static_cast<float>(kFftSize);
-    const float expectedPhase = 2.0f * kPi * static_cast<float>(kStepSize) / static_cast<float>(kFftSize);
-    const int bins = kFftSize / 2 + 1;
-
-    for (int k = 0; k < kFftSize; ++k)
-        fftInput[static_cast<size_t>(k)] = { inputFifo[static_cast<size_t>(k)] * window[static_cast<size_t>(k)], 0.0f };
-
-    fft->perform(fftInput.data(), fftOutput.data(), false);
-
-    std::fill(analysisMagnitudes.begin(), analysisMagnitudes.end(), 0.0f);
-    std::fill(analysisFrequencies.begin(), analysisFrequencies.end(), 0.0f);
-    std::fill(synthesisMagnitudes.begin(), synthesisMagnitudes.end(), 0.0f);
-    std::fill(synthesisFrequencies.begin(), synthesisFrequencies.end(), 0.0f);
-    std::fill(synthMaxMag.begin(), synthMaxMag.end(), 0.0f);
-
-    for (int k = 0; k < bins; ++k)
-    {
-        const auto c = fftOutput[static_cast<size_t>(k)];
-        const float magnitude = 2.0f * std::abs(c);
-        const float phase = std::atan2(c.imag(), c.real());
-
-        float phaseDelta = phase - lastPhase[static_cast<size_t>(k)];
-        lastPhase[static_cast<size_t>(k)] = phase;
-
-        phaseDelta -= static_cast<float>(k) * expectedPhase;
-        int quadrant = static_cast<int>(phaseDelta / kPi);
-        if (quadrant >= 0)
-            quadrant += quadrant & 1;
-        else
-            quadrant -= quadrant & 1;
-        phaseDelta -= kPi * static_cast<float>(quadrant);
-
-        const float trueFrequency = (static_cast<float>(k) + phaseDelta * static_cast<float>(kOversampling) / (2.0f * kPi)) * freqPerBin;
-        analysisMagnitudes[static_cast<size_t>(k)] = magnitude;
-        analysisFrequencies[static_cast<size_t>(k)] = trueFrequency;
-    }
-
-    for (int k = 0; k < bins; ++k)
-    {
-        const int shiftedBin = static_cast<int>(static_cast<float>(k) * pitchRatio + 0.5f);
-        if (shiftedBin < bins)
-        {
-            const float t = static_cast<float>(k) / static_cast<float>(bins - 1);
-            const float hfTilt = 1.0f + 0.65f * t * t;
-            const float mag = analysisMagnitudes[static_cast<size_t>(k)] * hfTilt;
-            synthesisMagnitudes[static_cast<size_t>(shiftedBin)] += mag;
-            if (mag > synthMaxMag[static_cast<size_t>(shiftedBin)])
-            {
-                synthMaxMag[static_cast<size_t>(shiftedBin)] = mag;
-                synthesisFrequencies[static_cast<size_t>(shiftedBin)] = analysisFrequencies[static_cast<size_t>(k)] * pitchRatio;
-            }
-        }
-    }
-
-    std::fill(fftInput.begin(), fftInput.end(), std::complex<float> {});
-
-    for (int k = 0; k < bins; ++k)
-    {
-        const float magnitude = synthesisMagnitudes[static_cast<size_t>(k)];
-        float phaseDelta = synthesisFrequencies[static_cast<size_t>(k)] - static_cast<float>(k) * freqPerBin;
-        phaseDelta /= freqPerBin;
-        phaseDelta = 2.0f * kPi * phaseDelta / static_cast<float>(kOversampling);
-        phaseDelta += static_cast<float>(k) * expectedPhase;
-
-        sumPhase[static_cast<size_t>(k)] += phaseDelta;
-        const float phase = sumPhase[static_cast<size_t>(k)];
-        fftInput[static_cast<size_t>(k)] = { magnitude * std::cos(phase), magnitude * std::sin(phase) };
-    }
-
-    for (int k = 1; k < kFftSize / 2; ++k)
-        fftInput[static_cast<size_t>(kFftSize - k)] = std::conj(fftInput[static_cast<size_t>(k)]);
-
-    fft->perform(fftInput.data(), fftOutput.data(), true);
-
-    // JUCE inverse FFT already applies 1/N scaling; rustfft (reference impl) does not.
-    const float scale = 1.0f / static_cast<float>(kOversampling);
-    for (int k = 0; k < kFftSize; ++k)
-    {
-        outputAccum[static_cast<size_t>(k)] += 2.0f * window[static_cast<size_t>(k)] * fftOutput[static_cast<size_t>(k)].real() * scale;
-    }
-
-    for (int k = 0; k < kStepSize; ++k)
-        outputFifo[static_cast<size_t>(k)] = outputAccum[static_cast<size_t>(k)];
-
-    std::move(outputAccum.begin() + kStepSize, outputAccum.end(), outputAccum.begin());
-    std::fill(outputAccum.end() - kStepSize, outputAccum.end(), 0.0f);
 }

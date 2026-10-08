@@ -1,11 +1,12 @@
 #pragma once
-#include <vector>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
 #include <numeric>
+#include <vector>
 
-class PitchDetector {
-public:
+class PitchDetector
+{
+  public:
     PitchDetector();
     ~PitchDetector() = default;
 
@@ -16,8 +17,8 @@ public:
     bool isPitchValid() const { return confidence > 0.8f; }
     void reset();
 
-private:
-    int yinPeriod(const float* buffer, int numSamples);
+  private:
+    float yinPeriod(const float* buffer, int numSamples);
     float parabolicInterpolation(const float* diff, int tau, int len) const;
 
     double sampleRate = 44100.0;
@@ -30,4 +31,6 @@ private:
     std::vector<float> diffBuffer;
     std::vector<float> normDiffBuffer;
     int historyFill = 0;
+    int samplesSinceAnalysis = 0;
+    float lastPitch = 0.0f;
 };
