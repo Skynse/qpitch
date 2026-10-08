@@ -92,13 +92,6 @@ linked into both plugin formats on Linux, macOS, and Windows. No separate
 formant preservation. The plugin reports its processing latency to the host;
 correction off and host bypass use a matching delayed dry path.
 
-The piano edits pitch classes across all octaves. Click a key to allow/exclude
-it; use arrow keys and Space when the piano has keyboard focus. Reset notes
-restores the selected key/scale. Detailed tuning switches the lower pane from the piano to snappiness, T-Pain,
-and tolerance controls; Show piano returns to the keyboard. The default window
-is 880 × 660 and switching panes keeps its size unchanged. Click numeric values to type; double-click sliders to
-restore defaults. All existing parameter IDs remain compatible with saved sessions.
-
 Rubber Band introduces processing delay (roughly 50 ms or more depending on
 sample rate). Host delay compensation aligns playback; it does not remove
 live monitoring delay. See `THIRD_PARTY_NOTICES.md` for bundled licences.
