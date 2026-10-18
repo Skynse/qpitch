@@ -127,5 +127,3 @@ The workflow builds Linux, macOS, and Windows VST3/CLAP packages and uploads:
 - `QPitch-<version>-windows-clap.zip`
 
 You can also run the release workflow manually from GitHub Actions and provide a version like `v2.0.0`.
-
-The live pitch piano shows cyan input and lime measured output dots, with an outlined target marker. The markers sit directly on the existing white and black note-selection keys; positions include fractional semitones, with the octave shown in the input/output readouts. Output pitch is detected from the processed audio rather than inferred from the correction setting.
