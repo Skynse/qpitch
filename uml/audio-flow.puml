@@ -1,6 +1,6 @@
 @startuml
 !include style.puml
-title QPitch 2.0 — audio and pitch-control paths
+title QPitch 2.1 — audio and pitch-control paths
 start
 :Host calls processBlock();
 if (Empty block or no outputs?) then (yes)

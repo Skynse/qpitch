@@ -1,6 +1,6 @@
 @startuml
 !include style.puml
-title QPitch 2.0 — parameters, session state and live piano
+title QPitch 2.1 — parameters, session state and live piano
 actor User
 participant "DAW / format wrapper" as Host
 participant "QPitchAudioProcessorEditor" as Editor

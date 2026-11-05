@@ -1,7 +1,7 @@
 @startuml
 !include style.puml
 left to right direction
-title QPitch 2.0 — plugin architecture
+title QPitch 2.1 — plugin architecture
 actor "DAW / host" as host
 package "Plugin format" {
   component "JUCE VST3 wrapper" as vst

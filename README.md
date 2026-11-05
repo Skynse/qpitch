@@ -1,6 +1,6 @@
 # QPitch
 
-QPitch 2.0 is a JUCE pitch-correction audio plugin with VST3 and CLAP builds.
+QPitch 2.1 is a JUCE pitch-correction audio plugin with VST3 and CLAP builds.
 
 No bullshit, just a quick, easy to use auto-tuning plugin with formant preservation.
 

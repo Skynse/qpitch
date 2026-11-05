@@ -1,6 +1,6 @@
 @startuml
 !include style.puml
-title QPitch 2.0 — principal classes
+title QPitch 2.1 — principal classes
 hide empty members
 class "juce::AudioProcessor" as AudioProcessor
 interface "juce::AudioProcessorValueTreeState::Listener" as Listener
