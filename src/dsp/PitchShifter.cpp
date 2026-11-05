@@ -28,6 +28,12 @@ void PitchShifter::prepare(double sampleRate, int, int numChannels)
     // One adapter block plus the live engine's initial delay.
     latencySamples = static_cast<int>(blockSize + engine->getStartDelay());
     position = 0;
+    downwardDelay = static_cast<int>(std::lround(0.038 * sampleRate));
+    size_t historySize = 1;
+    while (historySize <= static_cast<size_t>(downwardDelay))
+        historySize <<= 1;
+    ratioHistory.assign(historySize, 1.0f);
+    historyPosition = 0;
 }
 
 void PitchShifter::reset()
@@ -41,6 +47,8 @@ void PitchShifter::reset()
         std::fill(block.begin(), block.end(), 0.0f);
     for (auto &block : outputBlocks)
         std::fill(block.begin(), block.end(), 0.0f);
+    std::fill(ratioHistory.begin(), ratioHistory.end(), 1.0f);
+    historyPosition = 0;
     position = 0;
 }
 
@@ -60,11 +68,14 @@ void PitchShifter::process(const float *const *input, float *const *output, int 
         std::copy(input[0], input[0] + n, output[0]);
         return;
     }
-    const double scale = std::isfinite(ratio) ? std::clamp(ratio, .5f, 2.f) : 1.f;
+    const float scale = std::isfinite(ratio) ? std::clamp(ratio, .5f, 2.f) : 1.f;
     using Live = RubberBand::RubberBandLiveShifter;
     engine->setFormantOption(preserveFormants ? Live::OptionFormantPreserved : Live::OptionFormantShifted);
+    const int historyMask = static_cast<int>(ratioHistory.size()) - 1;
     for (int i = 0; i < n; ++i)
     {
+        ratioHistory[static_cast<size_t>(historyPosition)] = scale;
+        historyPosition = (historyPosition + 1) & historyMask;
         // All channels share one analysis clock and Rubber Band's linked phase decisions.
         for (int ch = 0; ch < getNumChannels(); ++ch)
         {
@@ -73,7 +84,9 @@ void PitchShifter::process(const float *const *input, float *const *output, int 
         }
         if (++position == static_cast<int>(inputBlocks.front().size()))
         {
-            engine->setPitchScale(scale);
+            const float downward =
+                ratioHistory[static_cast<size_t>((historyPosition - 1 - downwardDelay) & historyMask)];
+            engine->setPitchScale(downward < 1.f ? downward : std::max(scale, 1.f));
             engine->shift(inputPointers.data(), outputPointers.data());
             position = 0;
         }

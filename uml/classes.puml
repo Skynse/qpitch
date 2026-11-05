@@ -60,9 +60,15 @@ QPitchAudioProcessorEditor *-- Piano
 QPitchAudioProcessorEditor *-- Attachments
 Attachments --> State
 Piano --> QPitchAudioProcessor : note edits / pitch markers
+note right of PitchShifter
+  Keeps a ratio history so downward ratios,
+  which Rubber Band applies ~40 ms earlier,
+  are delayed to match upward ones.
+end note
 note bottom of QPitchAudioProcessor
   Owns dry, shifted and delayed-dry buffers.
   Publishes pitch readouts through atomic floats.
-  Target selection and smoothing live in this class.
+  Target selection and smoothing live in this class,
+  updated on a fixed 128-sample control grid.
 end note
 @enduml

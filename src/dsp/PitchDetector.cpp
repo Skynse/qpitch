@@ -90,12 +90,15 @@ float PitchDetector::yinPeriod(const float* buffer, int numSamples)
 
     std::fill(diffBuffer.begin(), diffBuffer.begin() + maxTau + 1, 0.0f);
 
+    // Integrate over the newest N samples so the estimate describes recent audio,
+    // not the oldest part of the history window.
+    const float* recent = buffer + maxTau;
     for (int tau = 1; tau <= maxTau; ++tau)
     {
         double sum = 0.0;
         for (int j = 0; j < N; ++j)
         {
-            float d = buffer[j] - buffer[j + tau];
+            float d = recent[j] - recent[j - tau];
             sum += static_cast<double>(d) * d;
         }
         diffBuffer[tau] = static_cast<float>(sum);

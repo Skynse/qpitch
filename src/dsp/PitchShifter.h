@@ -32,5 +32,10 @@ class PitchShifter
     std::vector<std::vector<float>> inputBlocks, outputBlocks;
     std::vector<const float *> inputPointers;
     std::vector<float *> outputPointers;
+    // Rubber Band applies downward scales at its output resampler, ~40 ms earlier in
+    // the source than upward scales. Downward ratios are therefore taken from this
+    // history, delayed so both directions land on the audio they were computed for.
+    std::vector<float> ratioHistory;
+    int historyPosition = 0, downwardDelay = 0;
     int position = 0, latencySamples = 0;
 };

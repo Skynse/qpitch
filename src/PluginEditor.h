@@ -28,8 +28,6 @@ private:
     std::unique_ptr<RotarySliderWithLabel> noteTransitionSlider;
     std::unique_ptr<RotarySliderWithLabel> correctionAmountSlider;
     std::unique_ptr<RotarySliderWithLabel> toleranceCentsSlider;
-    std::unique_ptr<RotarySliderWithLabel> toleranceTimeSlider;
-    std::unique_ptr<RotarySliderWithLabel> snappinessSlider;
     std::unique_ptr<RotarySliderWithLabel> tPainSlider;
     std::unique_ptr<RotarySliderWithLabel> referenceSlider;
     std::unique_ptr<RotarySliderWithLabel> humanizeSlider;
@@ -37,7 +35,6 @@ private:
 
     std::unique_ptr<juce::ComboBox> keyCombo;
     std::unique_ptr<juce::ComboBox> scaleCombo;
-    std::unique_ptr<juce::ComboBox> rangeCombo;
     std::unique_ptr<juce::ToggleButton> correctionToggle;
     std::unique_ptr<juce::ToggleButton> formantToggle;
     std::unique_ptr<juce::TextButton> resetScaleButton;
@@ -59,15 +56,12 @@ private:
     std::unique_ptr<SliderAttach> noteTransitionAttach;
     std::unique_ptr<SliderAttach> correctionAttach;
     std::unique_ptr<SliderAttach> toleranceCentsAttach;
-    std::unique_ptr<SliderAttach> toleranceTimeAttach;
-    std::unique_ptr<SliderAttach> snappinessAttach;
     std::unique_ptr<SliderAttach> tPainAttach;
     std::unique_ptr<SliderAttach> referenceAttach;
     std::unique_ptr<SliderAttach> humanizeAttach;
     std::unique_ptr<SliderAttach> outputGainAttach;
     std::unique_ptr<ComboAttach> keyAttach;
     std::unique_ptr<ComboAttach> scaleAttach;
-    std::unique_ptr<ComboAttach> rangeAttach;
     std::unique_ptr<ButtonAttach> correctionOnAttach;
     std::unique_ptr<ButtonAttach> formantAttach;
 

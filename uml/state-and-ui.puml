@@ -29,7 +29,7 @@ Host -> Processor : setStateInformation(binary)
 Processor -> Processor : Validate XML and ValueTree type\nSet isRestoringState = true
 Processor -> State : replaceState()
 State -> Processor : Parameter listener callbacks
-Processor -> Processor : Refresh key / scale / range and scale mask
+Processor -> Processor : Refresh key / scale and scale mask
 opt Legacy state without note parameters
   Processor -> State : Restore customNoteMask bits\nor selected scale defaults
 end

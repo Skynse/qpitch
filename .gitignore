@@ -24,3 +24,6 @@ Thumbs.db
 .vscode/
 .idea/
 compile_commands.json
+
+# .NET build output
+obj/

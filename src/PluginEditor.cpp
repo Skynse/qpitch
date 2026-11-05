@@ -369,22 +369,19 @@ QPitchAudioProcessorEditor::QPitchAudioProcessorEditor(QPitchAudioProcessor &p)
   make(retuneSpeedSlider, "Retune speed", " ms");
   make(correctionAmountSlider, "Correction", "%");
   make(noteTransitionSlider, "Transition", " ms");
-  make(humanizeSlider, "Humanize", " ct");
+  make(humanizeSlider, "Humanize", "%");
   humanizeSlider->asHorizontal();
   make(referenceSlider, "Reference", " Hz");
   referenceSlider->asField();
   make(outputGainSlider, "Output", " dB");
   outputGainSlider->asField();
-  make(snappinessSlider, "Snappiness", "%");
   make(tPainSlider, "T-Pain", "%");
   make(toleranceCentsSlider, "Tolerance", " ct");
-  make(toleranceTimeSlider, "Tolerance time", " ms");
-  for (auto *s : {snappinessSlider.get(), tPainSlider.get(),
-                  toleranceCentsSlider.get(), toleranceTimeSlider.get()})
+  for (auto *s : {tPainSlider.get(), toleranceCentsSlider.get()})
     s->asField();
-  retuneSpeedSlider->hint = "Fast to gradual";
+  retuneSpeedSlider->hint = "Pull toward the note";
   correctionAmountSlider->hint = "Amount of pitch correction";
-  noteTransitionSlider->hint = "Time between target notes";
+  noteTransitionSlider->hint = "Natural slide between notes";
   auto attach = [&](auto &a, const char *id, auto &s) {
     a = std::make_unique<SliderAttach>(vts, id, s->slider);
     // Parameter formatters already include units.
@@ -399,37 +396,28 @@ QPitchAudioProcessorEditor::QPitchAudioProcessorEditor(QPitchAudioProcessor &p)
   attach(humanizeAttach, "humanize", humanizeSlider);
   attach(referenceAttach, "reference_frequency", referenceSlider);
   attach(outputGainAttach, "output_gain", outputGainSlider);
-  attach(snappinessAttach, "snappiness", snappinessSlider);
   attach(tPainAttach, "tpain", tPainSlider);
   attach(toleranceCentsAttach, "tolerance_cents", toleranceCentsSlider);
-  attach(toleranceTimeAttach, "tolerance_time", toleranceTimeSlider);
   retuneSpeedSlider->slider.setSkewFactorFromMidPoint(100);
   noteTransitionSlider->slider.setSkewFactorFromMidPoint(150);
   for (auto *s :
        {retuneSpeedSlider.get(), correctionAmountSlider.get(),
         noteTransitionSlider.get(), humanizeSlider.get(), referenceSlider.get(),
-        outputGainSlider.get(), snappinessSlider.get(), tPainSlider.get(),
-        toleranceCentsSlider.get(), toleranceTimeSlider.get()})
+        outputGainSlider.get(), tPainSlider.get(), toleranceCentsSlider.get()})
     s->slider.setTooltip("Drag to adjust; click the value to type. "
                          "Double-click to restore the default.");
   keyCombo = std::make_unique<juce::ComboBox>();
   scaleCombo = std::make_unique<juce::ComboBox>();
-  rangeCombo = std::make_unique<juce::ComboBox>();
   for (int i = 0; i < 12; ++i)
     keyCombo->addItem(ScaleQuantizer::getKeyName(i), i + 1);
   for (int i = 0; i < ScaleQuantizer::numScales(); ++i)
     scaleCombo->addItem(ScaleQuantizer::getScaleName(i), i + 1);
-  rangeCombo->addItemList({"Bass", "Baritone", "Tenor", "Alto", "Mezzo Soprano",
-                           "Soprano", "Generic"},
-                          1);
-  for (auto *c : {keyCombo.get(), scaleCombo.get(), rangeCombo.get()})
+  for (auto *c : {keyCombo.get(), scaleCombo.get()})
     addAndMakeVisible(*c);
   keyCombo->setTitle("Key");
   scaleCombo->setTitle("Scale");
-  rangeCombo->setTitle("Voice range");
   keyAttach = std::make_unique<ComboAttach>(vts, "key", *keyCombo);
   scaleAttach = std::make_unique<ComboAttach>(vts, "scale", *scaleCombo);
-  rangeAttach = std::make_unique<ComboAttach>(vts, "range", *rangeCombo);
   correctionToggle = std::make_unique<juce::ToggleButton>("Correction");
   formantToggle = std::make_unique<juce::ToggleButton>("Formants");
   addAndMakeVisible(*correctionToggle);
@@ -492,8 +480,7 @@ void QPitchAudioProcessorEditor::timerCallback() {
   scaleKeyboard->repaint();
   for (auto *s : {retuneSpeedSlider.get(), correctionAmountSlider.get(),
                   noteTransitionSlider.get(), humanizeSlider.get(),
-                  snappinessSlider.get(), tPainSlider.get(),
-                  toleranceCentsSlider.get(), toleranceTimeSlider.get()})
+                  tPainSlider.get(), toleranceCentsSlider.get()})
     s->setEnabled(active);
   formantToggle->setEnabled(active);
 }
@@ -505,10 +492,9 @@ void QPitchAudioProcessorEditor::resized() {
     c->setTransform(juce::AffineTransform::scale(scale));
   };
   put(correctionToggle.get(), 683, 16, 169, 36);
-  put(keyCombo.get(), 28, 96, 112, 36);
-  put(scaleCombo.get(), 152, 96, 204, 36);
-  put(rangeCombo.get(), 368, 96, 220, 36);
-  put(referenceSlider.get(), 612, 96, 240, 36);
+  put(keyCombo.get(), 28, 96, 160, 36);
+  put(scaleCombo.get(), 200, 96, 300, 36);
+  put(referenceSlider.get(), 512, 96, 340, 36);
   put(pitchDisplay.get(), 28, 144, 824, 100);
   put(retuneSpeedSlider.get(), 28, 272, 180, 172);
   put(correctionAmountSlider.get(), 230, 272, 180, 172);
@@ -522,8 +508,7 @@ void QPitchAudioProcessorEditor::resized() {
   scaleKeyboard->setVisible(!advancedOpen);
   resetScaleButton->setVisible(!advancedOpen);
   int x = 44;
-  for (auto *s : {snappinessSlider.get(), tPainSlider.get(),
-                  toleranceCentsSlider.get(), toleranceTimeSlider.get()}) {
+  for (auto *s : {tPainSlider.get(), toleranceCentsSlider.get()}) {
     s->setVisible(advancedOpen);
     put(s, x, 490, 180, 36);
     x += 204;
@@ -535,18 +520,15 @@ void QPitchAudioProcessorEditor::paint(juce::Graphics &g) {
   caption(g, "QPitch", 28, 9, 200, 34, 26, text, true);
   g.setColour(line);
   g.fillRect(0, 64, 880, 1);
-  caption(g, "KEY", 28, 74, 112, 18, 11);
-  caption(g, "SCALE", 152, 74, 204, 18, 11);
-  caption(g, "VOICE RANGE", 368, 74, 220, 18, 11);
-  caption(g, "REFERENCE / A4", 612, 74, 240, 18, 11);
-  caption(g, "CORRECTION", 28, 250, 200, 18, 11);
+  caption(g, "Key", 28, 74, 160, 18, 11);
+  caption(g, "Scale", 200, 74, 300, 18, 11);
+  caption(g, "Reference Frequency", 512, 74, 340, 18, 11);
+  caption(g, "Ratio", 28, 250, 200, 18, 11);
   g.setColour(panel);
   g.fillRoundedRectangle(656, 266, 196, 178, 8);
-  caption(g, "VOICE CHARACTER", 672, 276, 170, 18, 11);
+  caption(g, "Vocal Character", 672, 276, 170, 18, 11);
   if (!advancedOpen) {
-    caption(g, "LIVE PITCH / TARGET NOTES", 28, 451, 220, 20, 11);
-    caption(g, "Click a key to allow or exclude its note", 28, 474, 430, 18,
-            12);
+
     auto legend = [&](const char *label, int x, juce::Colour c) {
       g.setColour(c);
       g.fillRect(x, 461, 5, 5);
@@ -570,18 +552,17 @@ void QPitchAudioProcessorEditor::paint(juce::Graphics &g) {
     g.setColour(panel);
     g.fillRoundedRectangle(28, 451, 824, 154, 8);
     int x = 44;
-    for (auto *label :
-         {"Snappiness", "T-Pain", "Tolerance", "Tolerance time"}) {
+    for (auto *label : {"T-Pain", "Tolerance"}) {
       caption(g, label, x, 465, 180, 18, 13);
       x += 204;
     }
     caption(g,
-            "Snappiness sharpens correction. Tolerance keeps small deviations "
-            "untouched.",
+            "T-Pain pushes Retune speed and Transition toward instant, "
+            "robotic steps.",
             44, 540, 765, 20, 12);
     caption(g,
-            "T-Pain increases the robotic effect. Humanize is reduced at "
-            "stronger settings.",
+            "Tolerance leaves notes within this many cents untouched. Humanize "
+            "lets held notes keep their vibrato.",
             44, 566, 765, 20, 12);
   }
   g.setColour(line);

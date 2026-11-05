@@ -17,7 +17,7 @@ else
 fi
 "$qpitch_container_engine" run "${qpitch_container_args[@]}" qpitch-linux-builder:bookworm bash -euc '
     cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release
-    cmake --build /build --target QPitch_VST3 QPitch_CLAP qpitch_shifter_test qpitch_detector_test qpitch_editor_test qpitch_clap_load_test -j2
+    cmake --build /build --target QPitch_VST3 QPitch_CLAP qpitch_shifter_test qpitch_detector_test qpitch_processor_test qpitch_editor_test qpitch_clap_load_test -j2
     xvfb-run -a ctest --test-dir /build --output-on-failure
     xvfb-run -a /build/qpitch_editor_test /build/ui-check
 '

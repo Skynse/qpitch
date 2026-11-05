@@ -78,9 +78,50 @@ static bool stereoImage()
                 pass ? "PASS" : "FAIL", wideningDb);
     return pass;
 }
+// Time (ms, relative to the input sample where the ratio changes) at which a
+// 220 Hz sine's output pitch is halfway between the two ratios.
+static double stepMidpointMs(double sr, float from, float to)
+{
+    PitchShifter shifter;
+    shifter.prepare(sr, 128);
+    // Change on a Rubber Band block boundary so both directions take effect at once.
+    const int latency = shifter.getLatencySamples(), change = static_cast<int>(sr * .5) / 512 * 512;
+    const int total = change + static_cast<int>(sr * .2) + latency;
+    std::vector<float> in(total), out(total);
+    for (int i = 0; i < total; ++i)
+        in[i] = .4f * std::sin(2.0 * 3.141592653589793 * 220.0 * i / sr);
+    for (int i = 0; i < total; i += 128)
+        shifter.process(in.data() + i, out.data() + i, std::min(128, total - i), i < change ? from : to);
+    const double mid = 220.0 * (from + to) / 2;
+    double previous = -1;
+    for (int i = latency + change - static_cast<int>(sr * .08); i < total; ++i)
+        if (out[i - 1] < 0 && out[i] >= 0)
+        {
+            const double crossing = i - 1 + out[i - 1] / (out[i - 1] - out[i]);
+            if (previous >= 0 && (sr / (crossing - previous) - mid) * (to - from) > 0)
+                return (crossing - latency - change) * 1000 / sr;
+            previous = crossing;
+        }
+    return 1.e9;
+}
+static bool stepTiming()
+{
+    bool pass = true;
+    for (double sr : {44100., 48000., 96000.})
+    {
+        const double up = stepMidpointMs(sr, 1.f, 1.03f), down = stepMidpointMs(sr, 1.f, .97f);
+        // Rubber Band applies downward ratios ~40 ms early; the adapter must bring them
+        // back next to the analysed audio (upward timing varies with block phase).
+        const bool ok = down > -15 && down < 15;
+        std::printf("%s step timing sr=%.0f up=%.1f ms down=%.1f ms\n", ok ? "PASS" : "FAIL", sr, up, down);
+        pass = ok && pass;
+    }
+    return pass;
+}
 int main()
 {
     bool pass = stereoImage();
+    pass = stepTiming() && pass;
     for (double sr : {44100., 48000., 96000.})
         for (float ratio : {.5f, 1.f, 1.059463f, 2.f})
             for (int block : {1, 127, 512, 1023})

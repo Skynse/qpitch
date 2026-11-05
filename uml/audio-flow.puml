@@ -9,15 +9,18 @@ endif
 :Read parameters and allowed-note mask;
 :Copy input channels to dryBuffer;
 fork
-  :Detect pitch from input channel 0\n(YIN and confidence);
-  :Convert Hz to MIDI; choose allowed target\nwith note locking and transition smoothing;
-  :Apply tolerance, correction amount, retune speed,\nsnappiness, T-Pain and humanize;
-  :Calculate pitch ratio\n(or hold / relax after loss of pitch);
+  repeat :Take the next slice up to the\n128-sample control grid;
+    :Detect pitch from input channel 0\n(YIN and confidence);
+    :Convert Hz to MIDI; lock the nearest allowed note\n(switch 15 ct past the midpoint);
+    :Retune Speed pulls toward the note (slowed on\nheld notes by Humanize); Note Transition keeps\nthe sung slide on note changes; T-Pain shortens both;
+    :Apply tolerance and correction amount;\ncalculate pitch ratio (or hold / relax after loss of pitch);
+    :Shift the slice; ratio = 1 when correction is inactive;
+  repeat while (More samples in host block?) is (yes)
 fork again
   :Retain original input for delayed dry path;
 end fork
-:Feed all input channels to one PitchShifter\nwith ratio = 1 when correction is inactive;
 :Adapt host blocks to fixed Rubber Band blocks;
+:Delay downward ratios ~38 ms so both shift\ndirections land on the analysed audio;
 :Shift channels together\nwith selected native formant mode;
 :Crossfade shifted audio and latency-matched dry\n(5 ms fade; wet target = 1 or 0);
 note right
@@ -34,7 +37,8 @@ stop
 legend bottom
   This is the order within one host audio callback.
   The fork separates logical control and audio paths;
-  it does not imply worker threads.
+  it does not imply worker threads. The fixed control
+  grid makes results independent of host buffer size.
   prepareToPlay() reports adapter + engine latency to the host.
 endlegend
 @enduml
