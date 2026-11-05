@@ -8,7 +8,7 @@ Detects vocal pitch, maps it to the selected notes, and corrects it with stereo-
 
 ![QPitch plugin UI](docs/qpitch-ui.png)
 
-[Watch the demo](docs/qpitch-demo.mp4)
+https://github.com/user-attachments/assets/2f554121-d136-445b-a847-edd452e0411c
 
 ## Dependencies
 
