@@ -158,7 +158,7 @@ if(BUILD_TESTING AND CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
         add_executable(qpitch_clap_load_test tools/clap_load_test.cpp)
         target_include_directories(qpitch_clap_load_test PRIVATE $<TARGET_PROPERTY:clap_juce_extensions,INTERFACE_INCLUDE_DIRECTORIES>)
         target_link_libraries(qpitch_clap_load_test PRIVATE ${CMAKE_DL_LIBS})
-        add_test(NAME clap_load COMMAND qpitch_clap_load_test $<TARGET_FILE:QPitch_CLAP>)
+        add_test(NAME clap_load COMMAND qpitch_clap_load_test $<TARGET_FILE:QPitch_CLAP> ${PROJECT_VERSION})
     endif()
 
 endif()

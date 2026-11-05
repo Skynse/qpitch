@@ -6,7 +6,7 @@
 
 int main(int argc, char **argv)
 {
-    if (argc != 2)
+    if (argc != 3)
         return 1;
     auto *module = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
     if (!module)
@@ -22,7 +22,7 @@ int main(int argc, char **argv)
         return 4;
     auto *descriptor = factory->get_plugin_descriptor(factory, 0);
     if (!descriptor || std::strcmp(descriptor->id, "com.qpitch.autotune") != 0 ||
-        std::strcmp(descriptor->version, "2.0.0") != 0)
+        std::strcmp(descriptor->version, argv[2]) != 0)
         return 5;
     std::printf("PASS CLAP load and metadata: %s %s\n", descriptor->name, descriptor->version);
     entry->deinit();

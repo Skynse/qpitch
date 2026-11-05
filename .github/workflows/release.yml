@@ -32,12 +32,12 @@ jobs:
             platform: macos-universal
             os: macos-latest
             configure: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
-            build: cmake --build build --target QPitch_VST3 QPitch_CLAP qpitch_shifter_test qpitch_detector_test --parallel 2
+            build: cmake --build build --target QPitch_VST3 QPitch_CLAP qpitch_shifter_test qpitch_detector_test qpitch_processor_test --parallel 2
           - name: Windows
             platform: windows
             os: windows-latest
             configure: cmake -S . -B build
-            build: cmake --build build --config Release --target QPitch_VST3 QPitch_CLAP qpitch_shifter_test qpitch_detector_test --parallel 2
+            build: cmake --build build --config Release --target QPitch_VST3 QPitch_CLAP qpitch_shifter_test qpitch_detector_test qpitch_processor_test --parallel 2
 
     steps:
       - uses: actions/checkout@v4
